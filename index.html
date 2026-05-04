@@ -26,8 +26,9 @@
 
   /* NAV */
   nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 1rem 2.5rem; background: rgba(255,255,255,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
-  .logo { font-family: 'DM Serif Display', serif; font-size: 1.5rem; color: var(--navy); letter-spacing: -0.02em; }
-  .logo span { color: var(--accent); }
+  .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .logo-wordmark { font-family: 'DM Serif Display', serif; font-size: 1.5rem; color: var(--navy); letter-spacing: -0.02em; line-height: 1; }
+  .logo-wordmark span { color: var(--accent); }
   .nav-links { display: flex; gap: 2rem; list-style: none; }
   .nav-links a { text-decoration: none; color: var(--muted); font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
   .nav-links a:hover { color: var(--text); }
@@ -130,14 +131,24 @@
 
   /* FOOTER */
   footer { padding: 1.5rem 2.5rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: var(--muted); flex-wrap: wrap; gap: 0.5rem; }
-  .footer-logo { font-family: 'DM Serif Display', serif; color: var(--navy); font-size: 1rem; }
-  .footer-logo span { color: var(--accent); }
+  .footer-logo { display: flex; align-items: center; gap: 8px; }
+  .footer-logo-wordmark { font-family: 'DM Serif Display', serif; color: var(--navy); font-size: 1rem; }
+  .footer-logo-wordmark span { color: var(--accent); }
 </style>
 </head>
 <body>
 
 <nav>
-  <div class="logo">vera<span>doc</span>.ai</div>
+  <a href="#" class="logo">
+    <svg width="36" height="36" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="60" height="60" rx="15" fill="#0f1f3d"/>
+      <polyline points="13,18 30,44 47,18" stroke="#2563eb" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="30" cy="11" r="3" fill="#60a5fa"/>
+      <circle cx="21" cy="14" r="1.5" fill="#3b82f6" opacity="0.5"/>
+      <circle cx="39" cy="14" r="1.5" fill="#3b82f6" opacity="0.5"/>
+    </svg>
+    <span class="logo-wordmark">vera<span>doc</span>.ai</span>
+  </a>
   <ul class="nav-links">
     <li><a href="#install">Install</a></li>
     <li><a href="#features">Features</a></li>
@@ -208,7 +219,7 @@
     </div>
     <div class="terminal-body">
       <div><span class="t-comment"># Run this single command in your terminal</span></div>
-      <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/deploy.sh | bash</span></div>
       <br>
       <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
       <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
@@ -262,7 +273,14 @@
 </section>
 
 <footer>
-  <div class="footer-logo">vera<span>doc</span>.ai</div>
+  <div class="footer-logo">
+    <svg width="24" height="24" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="60" height="60" rx="15" fill="#0f1f3d"/>
+      <polyline points="13,18 30,44 47,18" stroke="#2563eb" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="30" cy="11" r="3" fill="#60a5fa"/>
+    </svg>
+    <span class="footer-logo-wordmark">vera<span>doc</span>.ai</span>
+  </div>
   <div>© 2025 Veradoc. Private AI for modern teams.</div>
 </footer>
 
