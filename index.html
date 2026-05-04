@@ -219,7 +219,7 @@
     </div>
     <div class="terminal-body">
       <div><span class="t-comment"># Run this single command in your terminal</span></div>
-      <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/deploy.sh | bash</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash</span></div>
       <br>
       <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
       <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
@@ -286,7 +286,7 @@
 
 <script>
   function copyCmd(btn) {
-    navigator.clipboard.writeText('curl -fsSL https://veradoc.ai/deploy.sh | bash');
+    navigator.clipboard.writeText('curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash');
     btn.textContent = '✓ Copied!';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy command'; btn.classList.remove('copied'); }, 2000);
