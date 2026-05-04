@@ -1,0 +1,73 @@
+services:
+  # --- OLLAMA SERVICE ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama  
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s     
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - docsphere-net
+    restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+
+  # --- OLLAMA CONFIGURATION SIDECAR ---
+  ollama-sidecar:
+    image: curlimages/curl:latest
+    container_name: ollama-sidecar
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "Waiting for network..."
+        sleep 5
+        
+        echo "Waiting for Ollama API..."
+        until curl -s http://ollama:11434/api/tags > /dev/null; do 
+          sleep 2
+        done
+        
+        echo "Pulling Phi3..."
+        curl -s -X POST http://ollama:11434/api/pull -d '{"name": "phi3:3.8b-mini-128k-instruct-q8_0"}'
+        
+        echo "Warming up Phi3..."
+        curl -s -X POST http://ollama:11434/api/generate -d '{"model": "phi3:3.8b-mini-128k-instruct-q8_0", "prompt": "hello", "keep_alive": -1}'
+        
+        echo "Pulling nomic-embed-text...";
+        curl -X POST http://ollama:11434/api/pull -d '{"name": "nomic-embed-text:v1.5"}';
+
+        echo "Warming up Nomic Embed...";
+        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "nomic-embed-text:v1.5", "keep_alive": -1}';
+
+        echo "Verifying load..."
+        curl -s http://ollama:11434/api/ps
+
+        echo "Models loaded"
+    depends_on:   
+      ollama:
+        condition: service_healthy
+    networks:
+      - docsphere-net     
+
+volumes:
+  ollama-data:
+    name: ollama-data
+
+networks:
+  docsphere-net: 
+    name: docsphere-net
