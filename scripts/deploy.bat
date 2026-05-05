@@ -2,11 +2,11 @@
 set BASE_COMPOSE=docker-compose.yml
 set GPU_COMPOSE=docker-compose.gpu.yml
 
-echo --- DocSphere Deployment Script (Windows) ---
+echo --- VeraDoc Deployment Script (Windows) ---
 
 :: Check for "down" argument
 if "%1"=="down" (
-    echo Stopping DocSphere and removing volumes...
+    echo Stopping VeraDoc and removing volumes...
     docker compose -f %BASE_COMPOSE% -f %GPU_COMPOSE% down -v
     pause
     exit /b

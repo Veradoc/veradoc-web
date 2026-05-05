@@ -16,7 +16,7 @@ echo $LLM_COMPOSE
 
 # Check if the user wants to stop or start
 if [ "$1" == "down" ]; then
-    echo "Stopping DocSphere..."
+    echo "Stopping VeraDoc..."
     docker compose -f $BASE_COMPOSE -f $LLM_COMPOSE down -v --rmi local
     echo "Done."
     exit 0

@@ -22,7 +22,7 @@ services:
       --address "0.0.0.0:9000"
       --console-address "0.0.0.0:9001"         
     networks:
-      - docsphere-net
+      - veradoc-net
     restart: always
 
   # --- MINIO BUCKETS SIDECAR ---
@@ -41,14 +41,12 @@ services:
       minio:
         condition: service_healthy
     networks:
-      - docsphere-net        
+      - veradoc-net        
 
   # --- AGENTIC AI SERVICE ---
-  docsphere-back:
-    build:
-      context: ../../docsphere-back
-      dockerfile: Dockerfile
-    container_name: docsphere-back
+  veradoc-back:
+    image: veradocai/veradoc-back:2.5.0
+    container_name: veradoc-back
     environment:
       - APP_ENV=prod
     ports:
@@ -56,7 +54,7 @@ services:
     # Shared memory is important for PyTorch/Numpy heavy workloads
     shm_size: '2gb'
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://docsphere-back:8808/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://veradoc-back:8808/health')\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -67,7 +65,7 @@ services:
       ollama:
         condition: service_healthy
     networks:
-      - docsphere-net
+      - veradoc-net
 
   # --- MINIO EVENTS SIDECAR ---
   minio-sidecar-events:
@@ -89,8 +87,8 @@ services:
         #mc mb --ignore-existing local/warehouse;
 
         echo "Configuring webhooks..."
-        mc admin config set local notify_webhook:doc-webhook endpoint='http://docsphere-back:8808/api/v1/document/notification' queue_limit='1000';
-        mc admin config set local notify_webhook:metadata-webhook endpoint='http://docsphere-back:8808/api/v1/metadata/notification' queue_limit='1000';
+        mc admin config set local notify_webhook:doc-webhook endpoint='http://veradoc-back:8808/api/v1/document/notification' queue_limit='1000';
+        mc admin config set local notify_webhook:metadata-webhook endpoint='http://veradoc-back:8808/api/v1/metadata/notification' queue_limit='1000';
 
         echo "Restarting Minio server (non-interactive)..."
         mc --json admin service restart local;
@@ -112,23 +110,21 @@ services:
         mc event list local/custom-corpus
         mc event list local/warehouse        
     depends_on:
-      docsphere-back:
+      veradoc-back:
           condition: service_healthy    
     networks:
-      - docsphere-net
+      - veradoc-net
 
   # --- APP UI SERVICE ---
-  docsphere-ui:
-    build:
-      context: ../../docsphere-ui
-      dockerfile: Dockerfile
-    container_name: docsphere-ui
+  veradoc-ui:
+    image: veradocai/veradoc-ui:2.5.0
+    container_name: veradoc-ui
     ports:
       - "4200:80"
     depends_on:
-      - docsphere-back      
+      - veradoc-back      
     networks:
-      - docsphere-net
+      - veradoc-net
     restart: always  
 
 volumes:
@@ -136,5 +132,5 @@ volumes:
     name: minio-data
 
 networks:
-  docsphere-net: 
-    name: docsphere-net
+  veradoc-net: 
+    name: veradoc-net

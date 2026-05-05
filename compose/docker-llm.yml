@@ -16,7 +16,7 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0
     networks:
-      - docsphere-net
+      - veradoc-net
     restart: always
     deploy:
       resources:
@@ -62,12 +62,12 @@ services:
       ollama:
         condition: service_healthy
     networks:
-      - docsphere-net     
+      - veradoc-net     
 
 volumes:
   ollama-data:
     name: ollama-data
 
 networks:
-  docsphere-net: 
-    name: docsphere-net
+  veradoc-net: 
+    name: veradoc-net
