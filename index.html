@@ -79,7 +79,17 @@
   .install-section { background: var(--navy); padding: 6rem 2.5rem; text-align: center; }
   .install-section .section-label { color: #60a5fa; }
   .install-title { font-family: 'DM Serif Display', serif; font-size: clamp(1.8rem, 3vw, 2.6rem); color: white; line-height: 1.15; margin-bottom: 1rem; letter-spacing: -0.02em; }
-  .install-sub { color: #94a3b8; font-size: 1.05rem; max-width: 480px; margin: 0 auto 3rem; }
+  .install-sub { color: #94a3b8; font-size: 1.05rem; max-width: 480px; margin: 0 auto 2.5rem; }
+
+  /* OS TABS */
+  .os-tabs { display: inline-flex; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 2.5rem; }
+  .os-tab { display: flex; align-items: center; gap: 8px; padding: 0.5rem 1.3rem; border-radius: 7px; border: none; background: transparent; color: #94a3b8; font-size: 0.9rem; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.18s, color 0.18s; }
+  .os-tab svg { opacity: 0.7; transition: opacity 0.18s; flex-shrink: 0; }
+  .os-tab:hover { color: #cbd5e1; }
+  .os-tab:hover svg { opacity: 0.9; }
+  .os-tab.active { background: rgba(255,255,255,0.13); color: white; }
+  .os-tab.active svg { opacity: 1; }
+
   .install-steps { display: flex; justify-content: center; gap: 0; max-width: 700px; margin: 0 auto 2.5rem; position: relative; flex-wrap: wrap; }
   .step { flex: 1; min-width: 180px; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 0 1rem; position: relative; }
   .step:not(:last-child)::after { content: '→'; position: absolute; right: -8px; top: 18px; color: #475569; font-size: 1.1rem; }
@@ -101,12 +111,17 @@
   .t-cursor { display: inline-block; width: 8px; height: 16px; background: #3fb950; animation: blink 1s infinite; vertical-align: middle; margin-left: 2px; }
   @keyframes blink { 0%,50%{opacity:1}51%,100%{opacity:0} }
 
-  .copy-btn { margin-top: 1.5rem; background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); padding: 0.6rem 1.4rem; border-radius: 8px; font-size: 0.88rem; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.2s; }
+  /* COPY BUTTON ROW — aligned with terminal */
+  .terminal-actions { max-width: 640px; margin: 1rem auto 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .copy-btn { background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); padding: 0.6rem 1.4rem; border-radius: 8px; font-size: 0.88rem; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background 0.2s; display: flex; align-items: center; gap: 7px; }
   .copy-btn:hover { background: rgba(255,255,255,0.15); }
   .copy-btn.copied { background: rgba(22,163,74,0.2); border-color: rgba(22,163,74,0.4); color: #4ade80; }
-
-  .docker-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; padding: 0.45rem 1.1rem; color: #94a3b8; font-size: 0.82rem; margin-top: 1.5rem; }
+  .docker-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 100px; padding: 0.45rem 1.1rem; color: #94a3b8; font-size: 0.82rem; }
   .docker-badge strong { color: white; }
+
+  /* Tab panels */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 
   /* FEATURES */
   .features { padding: 6rem 2.5rem; max-width: 1100px; margin: 0 auto; }
@@ -158,7 +173,6 @@
     <li><a href="#features">Features</a></li>
     <li><a href="#contact">Contact</a></li>
   </ul>
-  <!--<button class="nav-cta">Get Early Access</button>-->
 </nav>
 
 <section class="hero">
@@ -201,47 +215,127 @@
   <h2 class="install-title">One command.<br>Running in minutes.</h2>
   <p class="install-sub">No technical knowledge required. If you have Docker, you have everything you need.</p>
 
-  <div class="install-steps">
-    <div class="step">
-      <div class="step-num">1</div>
-      <div class="step-label"><strong>Install Docker</strong>Only requirement</div>
+  <!-- OS TABS -->
+  <div class="os-tabs" role="tablist" aria-label="Operating system">
+    <button class="os-tab active" role="tab" aria-selected="true" aria-controls="panel-linux" id="tab-linux" onclick="switchTab('linux')">
+      <!-- Linux/Tux penguin icon -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="9" rx="5" ry="6"/>
+        <path d="M8 15c-3 1-4 4-3 6h14c1-2 0-5-3-6"/>
+        <path d="M9 21v1m6-1v1"/>
+        <circle cx="10" cy="8" r="1" fill="currentColor" stroke="none"/>
+        <circle cx="14" cy="8" r="1" fill="currentColor" stroke="none"/>
+      </svg>
+      Linux / macOS
+    </button>
+    <button class="os-tab" role="tab" aria-selected="false" aria-controls="panel-windows" id="tab-windows" onclick="switchTab('windows')">
+      <!-- Windows logo icon -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <path d="M3 5.6L10.5 4.5V11.5H3V5.6Z"/>
+        <path d="M11.5 4.35L21 3V11.5H11.5V4.35Z"/>
+        <path d="M3 12.5H10.5V19.5L3 18.4V12.5Z"/>
+        <path d="M11.5 12.5H21V21L11.5 19.65V12.5Z"/>
+      </svg>
+      Windows
+    </button>
+  </div>
+
+  <!-- LINUX / macOS PANEL -->
+  <div class="tab-panel active" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux">
+    <div class="install-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-label"><strong>Install Docker</strong>Only requirement</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-label"><strong>Run the command</strong>One line in terminal</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-label"><strong>Open your browser</strong>Veradoc is ready</div>
+      </div>
     </div>
-    <div class="step">
-      <div class="step-num">2</div>
-      <div class="step-label"><strong>Run the command</strong>One line in terminal</div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <span>bash / zsh</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-comment"># Run this single command in your terminal</span></div>
+        <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash</span></div>
+        <br>
+        <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
+        <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
+        <div><span class="t-info">▶ Configuring local storage...</span></div>
+        <div><span class="t-output">✓ Database ready</span></div>
+        <div><span class="t-output">✓ Embedding model loaded</span></div>
+        <div><span class="t-output">✓ API server running on :8000</span></div>
+        <br>
+        <div><span class="t-success">🚀 Veradoc is running at http://localhost:3000</span></div>
+        <div><span class="t-prompt">$</span> <span class="t-cursor"></span></div>
+      </div>
     </div>
-    <div class="step">
-      <div class="step-num">3</div>
-      <div class="step-label"><strong>Open your browser</strong>Veradoc is ready</div>
+
+    <div class="terminal-actions">
+      <button class="copy-btn" onclick="copyCmd(this, 'curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy command
+      </button>
+      <div class="docker-badge">
+        Only requirement: <strong>Docker Desktop</strong> — free at docker.com
+      </div>
     </div>
   </div>
 
-  <div class="terminal">
-    <div class="terminal-bar">
-      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
-      <span>terminal</span>
+  <!-- WINDOWS PANEL -->
+  <div class="tab-panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows">
+    <div class="install-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-label"><strong>Install Docker Desktop</strong>For Windows</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-label"><strong>Open PowerShell</strong>Run as Administrator</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-label"><strong>Open your browser</strong>Veradoc is ready</div>
+      </div>
     </div>
-    <div class="terminal-body">
-      <div><span class="t-comment"># Run this single command in your terminal</span></div>
-      <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash</span></div>
-      <br>
-      <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
-      <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
-      <div><span class="t-info">▶ Configuring local storage...</span></div>
-      <div><span class="t-output">✓ Database ready</span></div>
-      <div><span class="t-output">✓ Embedding model loaded</span></div>
-      <div><span class="t-output">✓ API server running on :8000</span></div>
-      <br>
-      <div><span class="t-success">🚀 Veradoc is running at http://localhost:3000</span></div>
-      <div><span class="t-prompt">$</span> <span class="t-cursor"></span></div>
-    </div>
-  </div>
 
-  <div>
-    <button class="copy-btn" onclick="copyCmd(this)">Copy command</button>
-  </div>
-  <div class="docker-badge">
-    Only requirement: <strong>Docker Desktop</strong> — free to download at docker.com
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <span>PowerShell</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-comment"># Run this command in PowerShell (Admin)</span></div>
+        <div><span class="t-prompt">PS&gt;</span> <span class="t-cmd">irm https://veradoc.ai/scripts/deploy.ps1 | iex</span></div>
+        <br>
+        <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
+        <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
+        <div><span class="t-info">▶ Configuring local storage...</span></div>
+        <div><span class="t-output">✓ Database ready</span></div>
+        <div><span class="t-output">✓ Embedding model loaded</span></div>
+        <div><span class="t-output">✓ API server running on :8000</span></div>
+        <br>
+        <div><span class="t-success">🚀 Veradoc is running at http://localhost:3000</span></div>
+        <div><span class="t-prompt">PS&gt;</span> <span class="t-cursor"></span></div>
+      </div>
+    </div>
+
+    <div class="terminal-actions">
+      <button class="copy-btn" onclick="copyCmd(this, 'irm https://veradoc.ai/scripts/deploy.ps1 | iex')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy command
+      </button>
+      <div class="docker-badge">
+        Only requirement: <strong>Docker Desktop</strong> — free at docker.com
+      </div>
+    </div>
   </div>
 </section>
 
@@ -289,11 +383,26 @@
 </footer>
 
 <script>
-  function copyCmd(btn) {
-    navigator.clipboard.writeText('curl -fsSL https://veradoc.ai/scripts/deploy.sh | bash');
-    btn.textContent = '✓ Copied!';
+  function switchTab(os) {
+    document.querySelectorAll('.os-tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+
+    document.getElementById('tab-' + os).classList.add('active');
+    document.getElementById('tab-' + os).setAttribute('aria-selected', 'true');
+    document.getElementById('panel-' + os).classList.add('active');
+  }
+
+  function copyCmd(btn, cmd) {
+    navigator.clipboard.writeText(cmd);
+    btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
     btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy command'; btn.classList.remove('copied'); }, 2000);
+    setTimeout(() => {
+      btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy command';
+      btn.classList.remove('copied');
+    }, 2000);
   }
 </script>
 
