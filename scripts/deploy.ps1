@@ -1,6 +1,6 @@
 # Define the URLs for your compose files
-$baseUrl = "https://veradoc.ai/scripts"
-$files = @("docker-compose.yml", "docker-compose.gpu.yml")
+$baseUrl = "https://veradoc.ai/compose"
+$files = @("docker-base.yml", "docker-llm.yml")
 
 Write-Host "--- VeraDoc Initializing ---" -ForegroundColor Cyan
 
@@ -15,7 +15,7 @@ foreach ($file in $files) {
 # Now that files exist, run the deployment logic
 # You can either call your .bat file or just run the docker commands directly here
 Write-Host "Starting Docker containers..."
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+docker compose -f docker-base.yml -f docker-llm.yml up -d
 
 Write-Host "--- Services Started ---" -ForegroundColor Green
 Write-Host "UI: http://localhost:4200"
