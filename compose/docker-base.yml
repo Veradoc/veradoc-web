@@ -45,7 +45,7 @@ services:
 
   # --- AGENTIC AI SERVICE ---
   veradoc-back:
-    image: veradocai/veradoc-back:2.5.0
+    image: veradocai/veradoc-back
     container_name: veradoc-back
     environment:
       - APP_ENV=prod
@@ -117,7 +117,7 @@ services:
 
   # --- APP UI SERVICE ---
   veradoc-ui:
-    image: veradocai/veradoc-ui:2.5.0
+    image: veradocai/veradoc-ui
     container_name: veradoc-ui
     ports:
       - "4200:80"
