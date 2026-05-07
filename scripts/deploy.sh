@@ -1,47 +1,68 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# --- VeraDoc Start (Bash) ---
 
-# 1. Get the directory where THIS script is located
-# This ensures paths work even if the user calls the script from elsewhere
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+set -euo pipefail
 
-# Configuration
-COMPOSE_DIR="$REPO_ROOT/compose"
-BASE_COMPOSE="$COMPOSE_DIR/docker-base.yml"
-LLM_COMPOSE="$COMPOSE_DIR/docker-llm.yml"
+BASE_URL="https://veradoc.ai/compose"
+BASE_COMPOSE="docker-base.yml"
+LLM_COMPOSE="docker-llm.yml"
 
-echo "--- Deployment Scripts ---"
-echo $BASE_COMPOSE
-echo $LLM_COMPOSE
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+GRAY='\033[0;37m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# Check if the user wants to stop or start
-if [ "$1" == "down" ]; then
-    echo "Stopping VeraDoc..."
-    docker compose -f $BASE_COMPOSE -f $LLM_COMPOSE down -v --rmi local
-    echo "Done."
-    exit 0
-fi
+# 1. Self-Bootstrap: Download files if they are missing
+for file in "$BASE_COMPOSE" "$LLM_COMPOSE"; do
+    if [ ! -f "$file" ]; then
+        echo -e "${CYAN}Fetching $file from server...${NC}"
+        if ! curl -fsSL "$BASE_URL/$file" -o "$file"; then
+            echo -e "${RED}Error: Failed to download $file. Check your internet connection.${NC}" >&2
+            exit 1
+        fi
+    fi
+done
 
-# 2. Hardware Detection
-# We check if the nvidia-smi command exists and returns a 0 exit code
-if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
-    HAS_GPU=true
-    echo "NVIDIA GPU detected. Activating hardware acceleration..."
-else
-    HAS_GPU=false
-    echo "No NVIDIA GPU detected. Deploying LLM in CPU-only mode..."
-fi
+# 2. OS + Hardware Detection
+OS="$(uname -s)"
+HAS_GPU=false
 
-echo "--- Deploying Services ---"
+case "$OS" in
+    Linux)
+        # On Linux, check for a real NVIDIA GPU via nvidia-smi
+        if command -v nvidia-smi &>/dev/null && nvidia-smi -L &>/dev/null; then
+            HAS_GPU=true
+            echo -e "${CYAN}NVIDIA GPU detected. Activating hardware acceleration...${NC}"
+        else
+            echo -e "${YELLOW}No NVIDIA GPU detected. Deploying in CPU-only mode...${NC}"
+        fi
+        ;;
+    Darwin)
+        # On macOS, Docker Desktop runs inside a Linux VM with no access
+        # to the host GPU — neither NVIDIA (Intel Macs) nor Metal (Apple Silicon).
+        # CPU-only mode is the only supported option.
+        ARCH="$(uname -m)"
+        if [ "$ARCH" = "arm64" ]; then
+            echo -e "${YELLOW}Apple Silicon detected (Metal GPU not accessible inside Docker). Deploying in CPU-only mode...${NC}"
+        else
+            echo -e "${YELLOW}macOS Intel detected (GPU not accessible inside Docker). Deploying in CPU-only mode...${NC}"
+        fi
+        ;;
+    *)
+        echo -e "${YELLOW}Unknown OS ($OS). Deploying in CPU-only mode...${NC}"
+        ;;
+esac
 
-# Detect if LLM file exists
+# 3. Deploy Services
+echo -e "${GRAY}--- Starting Services ---${NC}"
+
 if [ "$HAS_GPU" = true ]; then
-    echo "GPU override detected. Starting with NVIDIA support..."
-    docker compose -f $BASE_COMPOSE -f $LLM_COMPOSE up -d
+    docker compose -f "$BASE_COMPOSE" -f "$LLM_COMPOSE" up -d
 else
-    echo "GPU override not found. Starting in CPU-only mode..."
-    docker compose -f $BASE_COMPOSE up -d
+    docker compose -f "$BASE_COMPOSE" up -d
 fi
 
-echo "--- Services Started ---"
+echo -e "${GREEN}--- Services Started ---${NC}"
 echo "UI:      http://localhost:4200"

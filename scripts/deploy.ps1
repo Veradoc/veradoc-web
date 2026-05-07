@@ -1,5 +1,7 @@
 # --- VeraDoc Deployment Orchestrator (PowerShell) ---
 
+$ErrorActionPreference = 'Stop'
+
 $baseUrl = "https://veradoc.ai/compose"
 $baseCompose = "docker-base.yml"
 $llmCompose = "docker-llm.yml"
@@ -13,7 +15,7 @@ foreach ($file in $requiredFiles) {
             Invoke-WebRequest -Uri "$baseUrl/$file" -OutFile $file -ErrorAction Stop
         } catch {
             Write-Error "Failed to download $file. Check your internet connection."
-            exit
+            exit 1
         }
     }
 }
@@ -23,14 +25,12 @@ if ($args[0] -eq "down") {
     Write-Host "Stopping VeraDoc and cleaning volumes..." -ForegroundColor Yellow
     docker compose -f $baseCompose -f $llmCompose down -v --rmi local
     Write-Host "Done." -ForegroundColor Green
-    exit
+    exit 0
 }
 
 # 3. Hardware Detection (NVIDIA)
 $hasGpu = $false
-# Check if nvidia-smi exists in the system path
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    # Run it and check exit code
     nvidia-smi -L > $null 2>&1
     if ($LASTEXITCODE -eq 0) {
         $hasGpu = $true
@@ -46,10 +46,8 @@ if (-not $hasGpu) {
 Write-Host "--- Deploying Services ---" -ForegroundColor Gray
 
 if ($hasGpu) {
-    # Start with GPU override
     docker compose -f $baseCompose -f $llmCompose up -d
 } else {
-    # Start CPU only
     docker compose -f $baseCompose up -d
 }
 

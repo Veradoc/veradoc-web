@@ -1,11 +1,10 @@
-$hasNvidia = docker info 2>$null | Select-String "nvidia"
+# --- VeraDoc Stop (PowerShell) ---
 
-Write-Host "Stopping services..." -ForegroundColor Yellow
+$ErrorActionPreference = 'Stop'
 
-if ($hasNvidia) {
-    docker compose -f docker-base.yaml -f docker-gpu.yaml down
-} else {
-    docker compose -f docker-base.yaml down
-}
+$baseCompose = "docker-base.yml"
+$llmCompose = "docker-llm.yml"
 
-Write-Host "Services stopped" -ForegroundColor Green
+Write-Host "Stopping VeraDoc and cleaning volumes..." -ForegroundColor Yellow
+docker compose -f $baseCompose -f $llmCompose down -v --rmi local
+Write-Host "Done." -ForegroundColor Green

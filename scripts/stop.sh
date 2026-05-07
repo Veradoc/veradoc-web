@@ -1,11 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# --- VeraDoc Stop (Bash) ---
 
-echo "🛑 Stopping services..."
+set -euo pipefail
 
-if docker info 2>/dev/null | grep -q "Runtimes.*nvidia"; then
-  docker compose -f docker-base.yaml -f docker-gpu.yaml down
-else
-  docker compose -f docker-base.yaml down
-fi
+BASE_COMPOSE="docker-base.yml"
+LLM_COMPOSE="docker-llm.yml"
 
-echo "✅ Services stopped"
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo -e "${YELLOW}Stopping VeraDoc and cleaning volumes...${NC}"
+docker compose -f "$BASE_COMPOSE" -f "$LLM_COMPOSE" down -v --rmi local
+echo -e "${GREEN}Done.${NC}"
