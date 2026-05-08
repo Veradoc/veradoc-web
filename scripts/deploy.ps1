@@ -202,26 +202,42 @@ function Invoke-Down {
 }
 
 function Invoke-CleanConflicts {
-    # Docker derives the project name from the folder name when no -p is given.
-    # If a previous deploy used a different working directory, orphaned containers,
-    # networks and volumes remain under the old project name and block a fresh up.
-    # We stop+remove every container whose name matches known VeraDoc services.
+    # Docker derives the project name from the working directory when -p is not
+    # set inside the compose file itself. Running from different folders produces
+    # different project names (e.g. "deploy", "administrador", "veradoc-web"),
+    # which leaves orphaned containers that block the next `compose up`.
+    #
+    # Instead of relying on project-label filters (which depend on the name being
+    # consistent), we simply force-remove any container whose *exact* name matches
+    # a known VeraDoc service. Docker ps --filter uses a regex; wrapping the name
+    # in  word-boundary anchors avoids partial matches.
     Write-Step 'Checking for conflicting containers from previous deploys'
 
-    $veradocServices = @('ollama', 'minio', 'veradoc', 'nginx', 'postgres', 'redis')
+    $veradocServices = @('ollama', 'minio', 'veradoc-back', 'veradoc-ui',
+                         'ollama-sidecar', 'minio-sidecar-buckets', 'minio-sidecar-events',
+                         'nginx', 'postgres', 'redis')
     $foundAny = $false
 
     foreach ($svc in $veradocServices) {
-        # Ask Docker for a container with this exact name
-        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=^/$svc$") `
+        # --filter name= is a substring match in Docker, so we grep the exact name
+        # from the full container list to avoid false positives
+        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=$svc") `
                   -ErrorMessage "docker ps failed while checking $svc"
-        $id = $id.Trim()
+        $id = ($id -split "`n" | Where-Object { $_.Trim() -ne '' }) -join ' '
+
         if ($id -ne '') {
-            $foundAny = $true
-            Write-Warn "Conflicting container found: $svc ($id) — removing..."
-            Invoke-Wsl @('docker', 'rm', '-f', $id) `
-                -ErrorMessage "Failed to remove container $svc"
-            Write-Success "Removed: $svc"
+            # Verify it is an exact name match, not a substring (e.g. "veradoc-back" vs "veradoc-back-2")
+            $name = Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id.Trim()) `
+                        -ErrorMessage "docker inspect failed for $id"
+            $name = $name.Trim().TrimStart('/')
+
+            if ($name -eq $svc) {
+                $foundAny = $true
+                Write-Warn "Conflicting container found: $svc — removing..."
+                Invoke-Wsl @('docker', 'rm', '-f', $id.Trim()) `
+                    -ErrorMessage "Failed to remove container $svc"
+                Write-Success "Removed: $svc"
+            }
         }
     }
 
