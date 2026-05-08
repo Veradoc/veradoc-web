@@ -208,6 +208,35 @@ function Invoke-Down {
     Write-Success 'Stack stopped, volumes and local images removed.'
 }
 
+function Invoke-CleanConflicts {
+    # Docker derives the project name from the folder name when no -p is given.
+    # If a previous deploy used a different working directory, orphaned containers,
+    # networks and volumes remain under the old project name and block a fresh up.
+    # We stop+remove every container whose name matches known VeraDoc services.
+    Write-Step 'Checking for conflicting containers from previous deploys'
+
+    $veradocServices = @('ollama', 'minio', 'veradoc', 'nginx', 'postgres', 'redis')
+    $foundAny = $false
+
+    foreach ($svc in $veradocServices) {
+        # Ask Docker for a container with this exact name
+        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=^/$svc$") `
+                  -ErrorMessage "docker ps failed while checking $svc"
+        $id = $id.Trim()
+        if ($id -ne '') {
+            $foundAny = $true
+            Write-Warn "Conflicting container found: $svc ($id) — removing..."
+            Invoke-Wsl @('docker', 'rm', '-f', $id) `
+                -ErrorMessage "Failed to remove container $svc"
+            Write-Success "Removed: $svc"
+        }
+    }
+
+    if (-not $foundAny) {
+        Write-Success 'No conflicting containers found.'
+    }
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. Deploy
 # ──────────────────────────────────────────────────────────────────────────────
@@ -271,6 +300,7 @@ function Main {
             Invoke-Down
         } else {
             $hasGpu = Get-GpuAvailable
+            Invoke-CleanConflicts
             Invoke-Deploy -HasGpu $hasGpu
 
             if ($InstallNvidiaToolkit) {
