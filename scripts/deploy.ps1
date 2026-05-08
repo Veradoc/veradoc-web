@@ -55,6 +55,7 @@ $ScriptsUrl   = 'https://veradoc.ai/scripts'
 $BaseCompose  = 'docker-base.yml'
 $LlmCompose   = 'docker-llm.yml'
 $NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
+$ProjectName  = 'veradoc-web'   # Must match the name used when the stack was first created
 $UiPort       = 4200
 
 # All files are downloaded into the current working directory by Invoke-Bootstrap.
@@ -187,7 +188,7 @@ function Get-GpuAvailable {
 function Get-ComposeArgs {
     param([bool]$WithLlm)
     $basePath = ConvertTo-WslPath (Join-Path $ScriptDir $BaseCompose)
-    $a        = @('docker', 'compose', '-f', $basePath)
+    $a        = @('docker', 'compose', '-p', $ProjectName, '-f', $basePath)
     if ($WithLlm) {
         $llmPath = ConvertTo-WslPath (Join-Path $ScriptDir $LlmCompose)
         $a      += @('-f', $llmPath)
