@@ -289,7 +289,23 @@ function Invoke-NvidiaInstall {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Main
+# # ──────────────────────────────────────────────────────────────────────────────
+# Entry point — self-save when piped via irm | iex so parameters work normally
+# ──────────────────────────────────────────────────────────────────────────────
+
+$selfPath = Join-Path $PWD.Path 'deploy.ps1'
+$isPiped  = -not ($MyInvocation.MyCommand.Path)
+
+if ($isPiped) {
+    # Running via irm | iex — save ourselves to disk then re-execute as a real file
+    $MyInvocation.MyCommand.ScriptContents | Set-Content -Path $selfPath -Encoding UTF8
+    $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $selfPath)
+    if ($Down)                        { $relaunchArgs += '-Down' }
+    if ($WSLDistro -ne '')            { $relaunchArgs += @('-WSLDistro', $WSLDistro) }
+    if ($NvidiaRuntime -ne 'docker')  { $relaunchArgs += @('-NvidiaRuntime', $NvidiaRuntime) }
+    & pwsh @relaunchArgs
+} else {
+}
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Main {
@@ -332,4 +348,21 @@ function Main {
     }
 }
 
-Main
+# ──────────────────────────────────────────────────────────────────────────────
+# Entry point — self-save when piped via irm | iex so parameters work normally
+# ──────────────────────────────────────────────────────────────────────────────
+
+$selfPath = Join-Path $PWD.Path 'deploy.ps1'
+$isPiped  = -not ($MyInvocation.MyCommand.Path)
+
+if ($isPiped) {
+    # Running via irm | iex — save ourselves to disk then re-execute as a real file
+    $MyInvocation.MyCommand.ScriptContents | Set-Content -Path $selfPath -Encoding UTF8
+    $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $selfPath)
+    if ($Down)                       { $relaunchArgs += '-Down' }
+    if ($WSLDistro -ne '')           { $relaunchArgs += @('-WSLDistro', $WSLDistro) }
+    if ($NvidiaRuntime -ne 'docker') { $relaunchArgs += @('-NvidiaRuntime', $NvidiaRuntime) }
+    & pwsh @relaunchArgs
+} else {
+    Main
+}
