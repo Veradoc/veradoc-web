@@ -84,15 +84,11 @@ function Invoke-Wsl {
 
 function ConvertTo-WslPath {
     param([string]$WinPath)
-    # Pass the path as a single argument to wslpath using --
-    $p = wsl wslpath -u -- "$WinPath" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        # Fallback: manual conversion C:\foo\bar -> /mnt/c/foo/bar
-        $p = $WinPath -replace "\\", "/"
-        $p = $p -replace "^([A-Za-z]):/", "/mnt/`$1/"
-        $p = $p.ToLower()
-    }
-    return $p.Trim()
+    # Pure PowerShell conversion — avoids wslpath escaping issues entirely.
+    # C:\foo\bar  ->  /mnt/c/foo/bar
+    $p = $WinPath -replace "\\", "/"          # backslashes -> forward slashes
+    $p = $p -replace "^([A-Za-z]):/", "/mnt/`$1/"  # drive letter -> /mnt/x/
+    return $p.ToLower().Trim()
 }
 
 function Invoke-DownloadIfMissing {
