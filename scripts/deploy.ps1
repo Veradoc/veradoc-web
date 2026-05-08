@@ -56,7 +56,15 @@ $BaseCompose  = 'docker-base.yml'
 $LlmCompose   = 'docker-llm.yml'
 $NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
 $UiPort       = 4200
-$ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Definition
+# When piped via `irm | iex`, MyInvocation.MyCommand.Definition contains the
+# raw script text instead of a file path, so Split-Path would fail.
+# Fall back to the current working directory in that case.
+$ScriptDir = if ($MyInvocation.MyCommand.Definition -and
+                 (Test-Path $MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue)) {
+    Split-Path -Parent $MyInvocation.MyCommand.Definition
+} else {
+    $PWD.Path
+}
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
 
 # ──────────────────────────────────────────────────────────────────────────────
