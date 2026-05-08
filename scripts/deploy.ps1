@@ -56,15 +56,10 @@ $BaseCompose  = 'docker-base.yml'
 $LlmCompose   = 'docker-llm.yml'
 $NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
 $UiPort       = 4200
-# When piped via `irm | iex`, MyInvocation.MyCommand.Definition contains the
-# raw script text instead of a file path, so Split-Path would fail.
-# Fall back to the current working directory in that case.
-$ScriptDir = if ($MyInvocation.MyCommand.Definition -and
-                 (Test-Path $MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue)) {
-    Split-Path -Parent $MyInvocation.MyCommand.Definition
-} else {
-    $PWD.Path
-}
+
+# All files are downloaded into the current working directory by Invoke-Bootstrap.
+# Using $PWD works correctly both when run from disk and when piped via irm | iex.
+$ScriptDir    = $PWD.Path
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -240,7 +235,7 @@ function Invoke-Deploy {
 function Invoke-NvidiaInstall {
     Write-Step 'Installing NVIDIA Container Toolkit (post-deploy)'
 
-    # At this point the file is guaranteed to exist — bootstrap downloaded it
+    # File is guaranteed to exist — Invoke-Bootstrap downloaded it
     $nvArgs = @('-ExecutionPolicy', 'Bypass', '-File', $NvidiaScript, '-ContainerRuntime', $NvidiaRuntime)
     if ($WSLDistro -ne '') { $nvArgs += @('-WSLDistro', $WSLDistro) }
 
