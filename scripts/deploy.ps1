@@ -6,7 +6,8 @@
 .DESCRIPTION
     Downloads the required Compose files and installer scripts from veradoc.ai
     if missing, detects NVIDIA GPU availability, and brings the stack up or down.
-    Optionally installs the NVIDIA Container Toolkit after a successful deploy.
+    When an NVIDIA GPU is detected the NVIDIA Container Toolkit is installed
+    automatically — this is mandatory for Docker to use the GPU inside containers.
 
 .PARAMETER Down
     Tear down the stack and remove local images and volumes.
@@ -14,20 +15,13 @@
 .PARAMETER WSLDistro
     WSL distribution to target. Defaults to the system default.
 
-.PARAMETER InstallNvidiaToolkit
-    After a successful deploy, run the NVIDIA Container Toolkit installer.
-
 .PARAMETER NvidiaRuntime
-    Runtime to configure when -InstallNvidiaToolkit is used.
+    Container runtime to configure for GPU access.
     Valid values: docker (default), containerd, crio.
 
 .EXAMPLE
     # Standard deploy (auto-detects GPU)
     .\deploy.ps1
-
-.EXAMPLE
-    # Deploy then install the NVIDIA Container Toolkit
-    .\deploy.ps1 -InstallNvidiaToolkit
 
 .EXAMPLE
     # Tear down stack
@@ -38,7 +32,6 @@
 param(
     [switch]$Down,
     [string]$WSLDistro = '',
-    [switch]$InstallNvidiaToolkit,
     [ValidateSet('docker', 'containerd', 'crio')]
     [string]$NvidiaRuntime = 'docker'
 )
@@ -289,7 +282,7 @@ function Main {
     Write-Host "`nVeraDoc $action" -ForegroundColor Magenta
     Write-Host '================================' -ForegroundColor Magenta
     Write-Host "  WSL distro    : $(if ($WSLDistro) { $WSLDistro } else { '(default)' })"
-    Write-Host "  NVIDIA toolkit: $(if ($InstallNvidiaToolkit -and -not $Down) { "yes ($NvidiaRuntime)" } else { 'no' })"
+    Write-Host "  NVIDIA toolkit: $(if (-not $Down) { "mandatory when GPU detected" } else { 'n/a' })"
     Write-Host ''
 
     try {
@@ -303,7 +296,9 @@ function Main {
             Invoke-CleanConflicts
             Invoke-Deploy -HasGpu $hasGpu
 
-            if ($InstallNvidiaToolkit) {
+            # Toolkit is mandatory when a GPU is present —
+            # without it Docker cannot access the GPU inside containers
+            if ($hasGpu) {
                 Invoke-NvidiaInstall
             }
 
