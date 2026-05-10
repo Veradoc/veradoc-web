@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy.sh — VeraDoc Deployment Orchestrator (Linux)
+# deploy.sh — VeraDoc Deployment Orchestrator (Linux + macOS)
 #
 # Downloads required Compose files and installer scripts from veradoc.ai if
-# missing, detects NVIDIA GPU availability, and brings the stack up or down.
+# missing, detects platform and GPU availability, and brings the stack up or down.
 # Optionally installs the NVIDIA Container Toolkit after a successful deploy.
 #
 # Usage:
@@ -12,14 +12,14 @@
 #
 # Options:
 #   -d, --down                Tear down the stack (removes volumes + local images)
-#   -n, --nvidia              Install NVIDIA Container Toolkit after deploy
+#   -n, --nvidia              Install NVIDIA Container Toolkit after deploy (Linux only)
 #   -r, --runtime <runtime>   Runtime to configure with NVIDIA toolkit:
 #                             docker (default), containerd, crio
 #   -h, --help                Show this help message
 #
 # Examples:
 #   ./deploy.sh                          # Standard deploy (auto-detects GPU)
-#   ./deploy.sh --nvidia                 # Deploy + install NVIDIA toolkit
+#   ./deploy.sh --nvidia                 # Deploy + install NVIDIA toolkit (Linux only)
 #   ./deploy.sh --nvidia --runtime containerd
 #   ./deploy.sh --down                   # Tear down the stack
 #
@@ -50,6 +50,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DO_DOWN=false
 INSTALL_NVIDIA=false
 NVIDIA_RUNTIME="docker"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Platform detection (set once, used everywhere)
+# ──────────────────────────────────────────────────────────────────────────────
+
+OS="$(uname -s)"    # Darwin | Linux
+ARCH="$(uname -m)"  # arm64 | x86_64 | aarch64
+
+IS_MAC=false
+IS_LINUX=false
+IS_MAC_SILICON=false
+
+case "$OS" in
+    Darwin)
+        IS_MAC=true
+        [[ "$ARCH" == "arm64" ]] && IS_MAC_SILICON=true
+        ;;
+    Linux)
+        IS_LINUX=true
+        ;;
+    *)
+        echo "Unsupported OS: $OS" >&2
+        exit 1
+        ;;
+esac
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Colours
@@ -90,6 +115,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -n|--nvidia)
+            # Guard: NVIDIA toolkit is Linux-only
+            if [[ "$IS_MAC" == "true" ]]; then
+                fail "--nvidia is not supported on macOS. Apple Silicon uses Metal GPU natively via Ollama."
+            fi
             INSTALL_NVIDIA=true
             shift
             ;;
@@ -130,18 +159,21 @@ download_if_missing() {
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. Self-bootstrap: download all required files if missing
+#    On macOS the NVIDIA script is skipped — it will never be needed
 # ──────────────────────────────────────────────────────────────────────────────
 
 bootstrap() {
     step "Checking required files"
 
-    # Compose files
     download_if_missing "$BASE_COMPOSE" "$COMPOSE_URL"
     download_if_missing "$LLM_COMPOSE"  "$COMPOSE_URL"
 
-    # Installer scripts
-    download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
-    chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
+    if [[ "$IS_LINUX" == "true" ]]; then
+        download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
+        chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
+    else
+        info "Skipping NVIDIA script download (not needed on macOS)."
+    fi
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -151,30 +183,54 @@ bootstrap() {
 preflight_checks() {
     step "Pre-flight checks"
 
-    command -v docker &>/dev/null   || fail "docker is not installed or not on PATH."
+    command -v docker &>/dev/null || fail "docker is not installed or not on PATH."
     success "Docker found."
 
-    docker info &>/dev/null         || fail "Docker daemon is not running. Start it and try again."
+    docker info &>/dev/null       || fail "Docker daemon is not running. Start Docker Desktop and try again."
     success "Docker daemon is running."
 
-    command -v curl &>/dev/null     || fail "curl is required but not installed."
+    command -v curl &>/dev/null   || fail "curl is required but not installed."
     success "curl found."
+
+    # On Mac Silicon warn if images may need Rosetta emulation
+    if [[ "$IS_MAC_SILICON" == "true" ]]; then
+        warn "Apple Silicon (${ARCH}) detected."
+        warn "Some Docker images may run under Rosetta 2 emulation (amd64)."
+        warn "For best performance, ensure arm64 images are available in your Compose files."
+    fi
 
     success "Pre-flight checks passed."
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. GPU detection
+#    - Linux:       checks nvidia-smi
+#    - Mac Silicon: Apple Metal GPU is available but NOT via NVIDIA/Docker
+#    - Mac Intel:   no GPU acceleration available
 # ──────────────────────────────────────────────────────────────────────────────
 
 detect_gpu() {
-    step "Detecting NVIDIA GPU"
+    step "Detecting GPU"
 
+    if [[ "$IS_MAC_SILICON" == "true" ]]; then
+        warn "Apple Silicon GPU (Metal) detected."
+        warn "GPU acceleration for Docker containers is not available on Apple Silicon."
+        warn "Ollama running OUTSIDE Docker can use Metal — consider native Ollama install:"
+        info "  brew install ollama && ollama serve"
+        return 1
+    fi
+
+    if [[ "$IS_MAC" == "true" ]]; then
+        warn "Mac Intel detected — no GPU acceleration available. Deploying CPU-only."
+        return 1
+    fi
+
+    # Linux: check for NVIDIA GPU via nvidia-smi
     if command -v nvidia-smi &>/dev/null; then
         local gpu
         gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)
         if [[ -n "$gpu" ]]; then
-            success "GPU detected: $gpu"
+            success "NVIDIA GPU detected: $gpu"
             return 0
         fi
     fi
@@ -185,13 +241,22 @@ detect_gpu() {
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. Build docker compose argument list
+#    On Mac Silicon we inject --platform linux/arm64 via DOCKER_DEFAULT_PLATFORM
 # ──────────────────────────────────────────────────────────────────────────────
 
 compose_args() {
-    local with_llm="$1"   # "true" or "false"
+    local with_llm="$1"
     local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE")
     [[ "$with_llm" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_COMPOSE")
     echo "${args[@]}"
+}
+
+set_platform_env() {
+    if [[ "$IS_MAC_SILICON" == "true" ]]; then
+        # Prefer native arm64 images; Docker falls back to amd64+Rosetta if unavailable
+        export DOCKER_DEFAULT_PLATFORM="linux/arm64"
+        info "DOCKER_DEFAULT_PLATFORM set to linux/arm64"
+    fi
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -211,12 +276,14 @@ do_down() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 do_deploy() {
-    local has_gpu="$1"   # "true" or "false"
+    local has_gpu="$1"
     local mode
     mode=$(if [[ "$has_gpu" == "true" ]]; then echo "GPU mode"; else echo "CPU-only mode"; fi)
 
     # shellcheck disable=SC2046
     local ca; ca=$(compose_args "$has_gpu")
+
+    set_platform_env
 
     step "Pulling latest images"
     $ca pull || fail "docker compose pull failed."
@@ -231,13 +298,11 @@ do_deploy() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Optional: install NVIDIA Container Toolkit (post-deploy)
+# 7. Optional: install NVIDIA Container Toolkit (Linux only, post-deploy)
 # ──────────────────────────────────────────────────────────────────────────────
 
 install_nvidia_toolkit() {
     step "Installing NVIDIA Container Toolkit (post-deploy)"
-
-    # At this point the file is guaranteed to exist — bootstrap downloaded it
     info "Running: $NVIDIA_SCRIPT --runtime $NVIDIA_RUNTIME"
     bash "$SCRIPT_DIR/$NVIDIA_SCRIPT" --runtime "$NVIDIA_RUNTIME" \
         || fail "NVIDIA toolkit installer failed."
@@ -252,8 +317,19 @@ main() {
     local action
     action=$(if [[ "$DO_DOWN" == "true" ]]; then echo "Teardown"; else echo "Deploy"; fi)
 
+    # Resolve platform label for display
+    local platform_label
+    if [[ "$IS_MAC_SILICON" == "true" ]]; then
+        platform_label="macOS Apple Silicon (${ARCH})"
+    elif [[ "$IS_MAC" == "true" ]]; then
+        platform_label="macOS Intel (${ARCH})"
+    else
+        platform_label="Linux (${ARCH})"
+    fi
+
     echo -e "\n${C_MAGENTA}VeraDoc $action${C_RESET}"
     echo -e "${C_MAGENTA}================================${C_RESET}"
+    echo "  Platform: $platform_label"
     local nvidia_label
     nvidia_label=$(if [[ "$INSTALL_NVIDIA" == "true" && "$DO_DOWN" == "false" ]]; then echo "yes ($NVIDIA_RUNTIME)"; else echo "no"; fi)
     echo "  NVIDIA toolkit: $nvidia_label"
@@ -272,6 +348,14 @@ main() {
 
         if [[ "$INSTALL_NVIDIA" == "true" ]]; then
             install_nvidia_toolkit
+        fi
+
+        # Mac Silicon tip: suggest native Ollama for best GPU performance
+        if [[ "$IS_MAC_SILICON" == "true" ]]; then
+            echo ""
+            echo -e "  ${C_YELLOW}💡 Tip for Apple Silicon:${C_RESET}"
+            echo -e "  ${C_GRAY}For GPU-accelerated inference, run Ollama natively:${C_RESET}"
+            echo -e "  ${C_WHITE}  brew install ollama && ollama serve${C_RESET}"
         fi
 
         echo ""
