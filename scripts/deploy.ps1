@@ -6,7 +6,8 @@
 .DESCRIPTION
     Downloads the required Compose files and installer scripts from veradoc.ai
     if missing, detects NVIDIA GPU availability, and brings the stack up or down.
-    Optionally installs the NVIDIA Container Toolkit after a successful deploy.
+    When an NVIDIA GPU is detected the NVIDIA Container Toolkit is installed
+    automatically — this is mandatory for Docker to use the GPU inside containers.
 
 .PARAMETER Down
     Tear down the stack and remove local images and volumes.
@@ -14,20 +15,13 @@
 .PARAMETER WSLDistro
     WSL distribution to target. Defaults to the system default.
 
-.PARAMETER InstallNvidiaToolkit
-    After a successful deploy, run the NVIDIA Container Toolkit installer.
-
 .PARAMETER NvidiaRuntime
-    Runtime to configure when -InstallNvidiaToolkit is used.
+    Container runtime to configure for GPU access.
     Valid values: docker (default), containerd, crio.
 
 .EXAMPLE
     # Standard deploy (auto-detects GPU)
     .\deploy.ps1
-
-.EXAMPLE
-    # Deploy then install the NVIDIA Container Toolkit
-    .\deploy.ps1 -InstallNvidiaToolkit
 
 .EXAMPLE
     # Tear down stack
@@ -38,7 +32,6 @@
 param(
     [switch]$Down,
     [string]$WSLDistro = '',
-    [switch]$InstallNvidiaToolkit,
     [ValidateSet('docker', 'containerd', 'crio')]
     [string]$NvidiaRuntime = 'docker'
 )
@@ -55,8 +48,12 @@ $ScriptsUrl   = 'https://veradoc.ai/scripts'
 $BaseCompose  = 'docker-base.yml'
 $LlmCompose   = 'docker-llm.yml'
 $NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
+$ProjectName  = 'veradoc-web'   # Must match the name used when the stack was first created
 $UiPort       = 4200
-$ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+# All files are downloaded into the current working directory by Invoke-Bootstrap.
+# Using $PWD works correctly both when run from disk and when piped via irm | iex.
+$ScriptDir    = $PWD.Path
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -81,9 +78,11 @@ function Invoke-Wsl {
 
 function ConvertTo-WslPath {
     param([string]$WinPath)
-    $p = wsl wslpath -u $WinPath 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "wslpath conversion failed for: $WinPath" }
-    return $p.Trim()
+    # Pure PowerShell conversion — avoids wslpath escaping issues entirely.
+    # C:\foo\bar  ->  /mnt/c/foo/bar
+    $p = $WinPath -replace "\\", "/"          # backslashes -> forward slashes
+    $p = $p -replace "^([A-Za-z]):/", "/mnt/`$1/"  # drive letter -> /mnt/x/
+    return $p.ToLower().Trim()
 }
 
 function Invoke-DownloadIfMissing {
@@ -182,7 +181,7 @@ function Get-GpuAvailable {
 function Get-ComposeArgs {
     param([bool]$WithLlm)
     $basePath = ConvertTo-WslPath (Join-Path $ScriptDir $BaseCompose)
-    $a        = @('docker', 'compose', '-f', $basePath)
+    $a        = @('docker', 'compose', '-p', $ProjectName, '-f', $basePath)
     if ($WithLlm) {
         $llmPath = ConvertTo-WslPath (Join-Path $ScriptDir $LlmCompose)
         $a      += @('-f', $llmPath)
@@ -200,6 +199,51 @@ function Invoke-Down {
     Invoke-Wsl (@($ca) + @('down', '-v', '--rmi', 'local')) `
         -ErrorMessage 'docker compose down failed'
     Write-Success 'Stack stopped, volumes and local images removed.'
+}
+
+function Invoke-CleanConflicts {
+    # Docker derives the project name from the working directory when -p is not
+    # set inside the compose file itself. Running from different folders produces
+    # different project names (e.g. "deploy", "administrador", "veradoc-web"),
+    # which leaves orphaned containers that block the next `compose up`.
+    #
+    # Instead of relying on project-label filters (which depend on the name being
+    # consistent), we simply force-remove any container whose *exact* name matches
+    # a known VeraDoc service. Docker ps --filter uses a regex; wrapping the name
+    # in  word-boundary anchors avoids partial matches.
+    Write-Step 'Checking for conflicting containers from previous deploys'
+
+    $veradocServices = @('ollama', 'minio', 'veradoc-back', 'veradoc-ui',
+                         'ollama-sidecar', 'minio-sidecar-buckets', 'minio-sidecar-events',
+                         'nginx', 'postgres', 'redis')
+    $foundAny = $false
+
+    foreach ($svc in $veradocServices) {
+        # --filter name= is a substring match in Docker, so we grep the exact name
+        # from the full container list to avoid false positives
+        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=$svc") `
+                  -ErrorMessage "docker ps failed while checking $svc"
+        $id = ($id -split "`n" | Where-Object { $_.Trim() -ne '' }) -join ' '
+
+        if ($id -ne '') {
+            # Verify it is an exact name match, not a substring (e.g. "veradoc-back" vs "veradoc-back-2")
+            $name = Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id.Trim()) `
+                        -ErrorMessage "docker inspect failed for $id"
+            $name = $name.Trim().TrimStart('/')
+
+            if ($name -eq $svc) {
+                $foundAny = $true
+                Write-Warn "Conflicting container found: $svc — removing..."
+                Invoke-Wsl @('docker', 'rm', '-f', $id.Trim()) `
+                    -ErrorMessage "Failed to remove container $svc"
+                Write-Success "Removed: $svc"
+            }
+        }
+    }
+
+    if (-not $foundAny) {
+        Write-Success 'No conflicting containers found.'
+    }
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -232,7 +276,7 @@ function Invoke-Deploy {
 function Invoke-NvidiaInstall {
     Write-Step 'Installing NVIDIA Container Toolkit (post-deploy)'
 
-    # At this point the file is guaranteed to exist — bootstrap downloaded it
+    # File is guaranteed to exist — Invoke-Bootstrap downloaded it
     $nvArgs = @('-ExecutionPolicy', 'Bypass', '-File', $NvidiaScript, '-ContainerRuntime', $NvidiaRuntime)
     if ($WSLDistro -ne '') { $nvArgs += @('-WSLDistro', $WSLDistro) }
 
@@ -245,7 +289,23 @@ function Invoke-NvidiaInstall {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Main
+# # ──────────────────────────────────────────────────────────────────────────────
+# Entry point — self-save when piped via irm | iex so parameters work normally
+# ──────────────────────────────────────────────────────────────────────────────
+
+$selfPath = Join-Path $PWD.Path 'deploy.ps1'
+$isPiped  = -not ($MyInvocation.MyCommand.Path)
+
+if ($isPiped) {
+    # Running via irm | iex — save ourselves to disk then re-execute as a real file
+    $MyInvocation.MyCommand.ScriptContents | Set-Content -Path $selfPath -Encoding UTF8
+    $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $selfPath)
+    if ($Down)                        { $relaunchArgs += '-Down' }
+    if ($WSLDistro -ne '')            { $relaunchArgs += @('-WSLDistro', $WSLDistro) }
+    if ($NvidiaRuntime -ne 'docker')  { $relaunchArgs += @('-NvidiaRuntime', $NvidiaRuntime) }
+    & pwsh @relaunchArgs
+} else {
+}
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Main {
@@ -254,7 +314,7 @@ function Main {
     Write-Host "`nVeraDoc $action" -ForegroundColor Magenta
     Write-Host '================================' -ForegroundColor Magenta
     Write-Host "  WSL distro    : $(if ($WSLDistro) { $WSLDistro } else { '(default)' })"
-    Write-Host "  NVIDIA toolkit: $(if ($InstallNvidiaToolkit -and -not $Down) { "yes ($NvidiaRuntime)" } else { 'no' })"
+    Write-Host "  NVIDIA toolkit: $(if (-not $Down) { "mandatory when GPU detected" } else { 'n/a' })"
     Write-Host ''
 
     try {
@@ -265,9 +325,12 @@ function Main {
             Invoke-Down
         } else {
             $hasGpu = Get-GpuAvailable
+            Invoke-CleanConflicts
             Invoke-Deploy -HasGpu $hasGpu
 
-            if ($InstallNvidiaToolkit) {
+            # Toolkit is mandatory when a GPU is present —
+            # without it Docker cannot access the GPU inside containers
+            if ($hasGpu) {
                 Invoke-NvidiaInstall
             }
 
