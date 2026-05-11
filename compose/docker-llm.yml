@@ -30,6 +30,7 @@ services:
   ollama-sidecar:
     image: curlimages/curl:latest
     container_name: ollama-sidecar
+    restart: "no"
     entrypoint:
       - /bin/sh
       - -c
