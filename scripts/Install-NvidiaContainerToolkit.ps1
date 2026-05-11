@@ -91,7 +91,10 @@ function Invoke-Shell {
         [string[]]$Command,
         [string]$ErrorMessage = 'Command failed'
     )
-    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+    # Detecta Windows de forma compatible con PS 5.1 y PS 7
+    $actualIsWindows = $env:OS -eq 'Windows_NT' -or $PSVersionTable.Platform -eq 'Unix' -eq $false    
+
+    if ($actualIsWindows) {
         # Run inside WSL
         if ($WSLDistro -ne '') {
             $result = wsl -d $WSLDistro -- @Command

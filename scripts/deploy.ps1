@@ -281,7 +281,9 @@ function Invoke-NvidiaInstall {
     if ($WSLDistro -ne '') { $nvArgs += @('-WSLDistro', $WSLDistro) }
 
     Write-Info "Running: $NvidiaFile -ContainerRuntime $NvidiaRuntime"
-    $proc = Start-Process pwsh -ArgumentList $nvArgs -Wait -PassThru -NoNewWindow
+    # Usamos $PSCulture para obtener el ejecutable actual (powershell.exe o pwsh.exe)
+    $currentExe = (Get-Process -Id $PID).Path
+    $proc = Start-Process $currentExe -ArgumentList $nvArgs -Wait -PassThru -NoNewWindow
     if ($proc.ExitCode -ne 0) {
         throw "NVIDIA toolkit installer failed (exit $($proc.ExitCode))."
     }
