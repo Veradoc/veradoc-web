@@ -52,7 +52,7 @@ $ProjectName  = 'veradoc-web'   # Must match the name used when the stack was fi
 $UiPort       = 4200
 
 # All files are downloaded into the current working directory by Invoke-Bootstrap.
-# Using $PWD works correctly both when run from disk and when piped via irm | iex.
+# Using $PWD works correctly both when run from disk and when piped via irm | powershell.
 $ScriptDir    = $PWD.Path
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
 
@@ -290,14 +290,14 @@ function Invoke-NvidiaInstall {
 
 # ──────────────────────────────────────────────────────────────────────────────
 # # ──────────────────────────────────────────────────────────────────────────────
-# Entry point — self-save when piped via irm | iex so parameters work normally
+# Entry point — self-save when piped via irm | powershell so parameters work normally
 # ──────────────────────────────────────────────────────────────────────────────
 
 $selfPath = Join-Path $PWD.Path 'deploy.ps1'
 $isPiped  = -not ($MyInvocation.MyCommand.Path)
 
 if ($isPiped) {
-    # Running via irm | iex — save ourselves to disk then re-execute as a real file
+    # Running via irm | powershell — save ourselves to disk then re-execute as a real file
     $MyInvocation.MyCommand.ScriptContents | Set-Content -Path $selfPath -Encoding UTF8
     $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $selfPath)
     if ($Down)                        { $relaunchArgs += '-Down' }
