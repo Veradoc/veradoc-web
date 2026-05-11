@@ -28,6 +28,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# PS 5.1 only runs on Windows
+$script:IsWindowsHost = ($env:OS -eq 'Windows_NT')
+
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
@@ -36,6 +39,7 @@ function Write-Step    { param([string]$M); Write-Host "`n==> $M" -ForegroundCol
 function Write-Success { param([string]$M); Write-Host "    [OK] $M" -ForegroundColor Green  }
 function Write-Warn    { param([string]$M); Write-Host "    [WARN] $M" -ForegroundColor Yellow }
 function Write-Fail    { param([string]$M); Write-Host "`n[ERROR] $M" -ForegroundColor Red    }
+function Write-Info    { param([string]$M); Write-Host "    $M" -ForegroundColor Gray }
 
 # ---------------------------------------------------------------------------
 # Core WSL runner
@@ -181,13 +185,48 @@ function Install-RhelBased {
 function Invoke-RuntimeConfig {
     Write-Step "Configuring runtime: $ContainerRuntime"
     Invoke-WslBash -BashCommand "sudo nvidia-ctk runtime configure --runtime=$ContainerRuntime" -ErrorMessage 'nvidia-ctk configure'
-    Write-Success 'Runtime configured.'
+    Write-Success 'Runtime configured (daemon.json updated).'
 
-    try {
-        Invoke-WslBash -BashCommand "sudo systemctl restart $ContainerRuntime" -ErrorMessage 'systemctl restart'
-        Write-Success "$ContainerRuntime restarted."
-    } catch {
-        Write-Warn "Could not restart $ContainerRuntime -- a manual restart may be needed."
+    # Detect whether we are running under Docker Desktop (no systemd docker.service
+    # inside WSL) or a native Linux Docker daemon (systemd managed).
+    $isDockerDesktop = $false
+    if ($script:IsWindowsHost) {
+        # On Windows, Docker Desktop is always the runtime — systemctl won't work
+        $isDockerDesktop = $true
+    } else {
+        # On native Linux, check if docker.service unit exists
+        & wsl -- systemctl list-units --type=service 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { $isDockerDesktop = $true }
+    }
+
+    if ($isDockerDesktop) {
+        Write-Step 'Restarting Docker Desktop to apply GPU configuration'
+
+        # Gracefully quit Docker Desktop and relaunch it
+        $ddProcess = Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue
+        if ($ddProcess) {
+            Write-Info 'Stopping Docker Desktop...'
+            $ddProcess | Stop-Process -Force
+            Start-Sleep -Seconds 3
+        }
+
+        $ddExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
+        if (Test-Path $ddExe) {
+            Write-Info 'Starting Docker Desktop...'
+            Start-Process $ddExe
+            Write-Success 'Docker Desktop restarted. GPU config will be active once it is fully running.'
+        } else {
+            Write-Warn 'Docker Desktop not found at the default path. Please restart it manually.'
+            Write-Warn 'After restart, run the smoke-test to confirm GPU access.'
+        }
+    } else {
+        # Native Linux daemon — use systemctl
+        try {
+            Invoke-WslBash -BashCommand "sudo systemctl restart $ContainerRuntime" -ErrorMessage 'systemctl restart'
+            Write-Success "$ContainerRuntime restarted."
+        } catch {
+            Write-Warn "Could not restart $ContainerRuntime -- a manual restart may be needed."
+        }
     }
 }
 
