@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # VeraDoc Install — downloads deploy.ps1 and runs it.
-# Usage: irm https://veradoc.ai/install | powershell
+# Usage: irm https://veradoc.ai/install | iex
 
 $deployUrl  = 'https://veradoc.ai/scripts/deploy.ps1'
 $deployPath = Join-Path $PWD.Path 'deploy.ps1'
