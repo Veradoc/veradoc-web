@@ -161,7 +161,7 @@ function Invoke-PreflightChecks {
         $nvidiaSmi = Invoke-Shell -Command @('nvidia-smi', '--query-gpu=name', '--format=csv,noheader')
         Write-Success "NVIDIA GPU detected: $($nvidiaSmi -join ', ')"
     } catch {
-        Write-Warn "nvidia-smi not found or no GPU detected. Continuing anyway — ensure the NVIDIA driver is installed."
+        Write-Warn "nvidia-smi not found or no GPU detected. Continuing anyway - ensure the NVIDIA driver is installed."
     }
 
     # Check the selected container runtime exists
@@ -202,7 +202,7 @@ function Install-DebianBased {
     $repoCmd = @(
         'bash', '-c',
         'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | ' +
-        "sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | " +
+        'sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | ' +
         'tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
     )
     Invoke-Sudo $repoCmd -ErrorMessage "Failed to add apt repository"
