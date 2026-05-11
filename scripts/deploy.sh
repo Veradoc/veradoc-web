@@ -1,185 +1,285 @@
 #!/usr/bin/env bash
-# --- VeraDoc Start (Bash) ---
+# =============================================================================
+# deploy.sh — VeraDoc Deployment Orchestrator (Linux)
+#
+# Downloads required Compose files and installer scripts from veradoc.ai if
+# missing, detects NVIDIA GPU availability, and brings the stack up or down.
+# Optionally installs the NVIDIA Container Toolkit after a successful deploy.
+#
+# Usage:
+#   chmod +x deploy.sh
+#   ./deploy.sh [OPTIONS]
+#
+# Options:
+#   -d, --down                Tear down the stack (removes volumes + local images)
+#   -n, --nvidia              Install NVIDIA Container Toolkit after deploy
+#   -r, --runtime <runtime>   Runtime to configure with NVIDIA toolkit:
+#                             docker (default), containerd, crio
+#   -h, --help                Show this help message
+#
+# Examples:
+#   ./deploy.sh                          # Standard deploy (auto-detects GPU)
+#   ./deploy.sh --nvidia                 # Deploy + install NVIDIA toolkit
+#   ./deploy.sh --nvidia --runtime containerd
+#   ./deploy.sh --down                   # Tear down the stack
+#
+# Prerequisites:
+#   - Docker and Docker Compose installed
+#   - curl and internet access
+# =============================================================================
 
 set -euo pipefail
 
-BASE_URL="https://veradoc.ai/compose"
+# ──────────────────────────────────────────────────────────────────────────────
+# Config
+# ──────────────────────────────────────────────────────────────────────────────
+
+COMPOSE_URL="https://veradoc.ai/compose"
+SCRIPTS_URL="https://veradoc.ai/scripts"
 BASE_COMPOSE="docker-base.yml"
 LLM_COMPOSE="docker-llm.yml"
+NVIDIA_SCRIPT="install-nvidia-container-toolkit.sh"
+UI_PORT=4200
 
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-GREEN='\033[0;32m'
-GRAY='\033[0;37m'
-RED='\033[0;31m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
-USE_NATIVE_OLLAMA=false
+# ──────────────────────────────────────────────────────────────────────────────
+# Defaults
+# ──────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_MODELS=(
-    "phi3:3.8b-mini-128k-instruct-q8_0"
-    "nomic-embed-text:v1.5"
-)
+DO_DOWN=false
+INSTALL_NVIDIA=false
+NVIDIA_RUNTIME="docker"
 
-# 1. Self-Bootstrap: Download files if they are missing
-for file in "$BASE_COMPOSE" "$LLM_COMPOSE"; do
-    if [ ! -f "$file" ]; then
-        echo -e "${CYAN}Fetching $file from server...${NC}"
-        if ! curl -fsSL "$BASE_URL/$file" -o "$file"; then
-            echo -e "${RED}Error: Failed to download $file. Check your internet connection.${NC}" >&2
-            exit 1
-        fi
-    fi
-done
+# ──────────────────────────────────────────────────────────────────────────────
+# Colours
+# ──────────────────────────────────────────────────────────────────────────────
 
-# 2. OS + Hardware Detection
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-HAS_GPU=false
+if [[ -t 1 ]]; then
+    C_CYAN="\033[0;36m"
+    C_GREEN="\033[0;32m"
+    C_YELLOW="\033[1;33m"
+    C_RED="\033[0;31m"
+    C_MAGENTA="\033[0;35m"
+    C_GRAY="\033[0;90m"
+    C_WHITE="\033[0;97m"
+    C_RESET="\033[0m"
+else
+    C_CYAN="" C_GREEN="" C_YELLOW="" C_RED="" C_MAGENTA="" C_GRAY="" C_WHITE="" C_RESET=""
+fi
 
-case "$OS" in
-    Linux)
-        if command -v nvidia-smi &>/dev/null && nvidia-smi -L &>/dev/null; then
-            HAS_GPU=true
-            echo -e "${CYAN}NVIDIA GPU detected. Activating hardware acceleration...${NC}"
-        else
-            echo -e "${YELLOW}No NVIDIA GPU detected. Deploying in CPU-only mode...${NC}"
-        fi
-        ;;
-    Darwin)
-        if [ "$ARCH" = "arm64" ]; then
-            echo -e "${CYAN}Apple Silicon detected. Using native Ollama with Metal GPU acceleration.${NC}"
-            USE_NATIVE_OLLAMA=true
-        else
-            echo -e "${YELLOW}macOS Intel detected (GPU not accessible inside Docker). Deploying in CPU-only mode...${NC}"
-        fi
-        ;;
-    *)
-        echo -e "${YELLOW}Unknown OS ($OS). Deploying in CPU-only mode...${NC}"
-        ;;
-esac
+step()    { echo -e "\n${C_CYAN}==> $*${C_RESET}"; }
+success() { echo -e "    ${C_GREEN}[OK]${C_RESET} $*"; }
+warn()    { echo -e "    ${C_YELLOW}[WARN]${C_RESET} $*"; }
+info()    { echo -e "    ${C_GRAY}$*${C_RESET}"; }
+fail()    { echo -e "\n${C_RED}[ERROR]${C_RESET} $*" >&2; exit 1; }
 
-# ---------------------------------------------------------------------------
-# Helpers (native Ollama path only)
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────────────────────────
 
-ollama_wait_ready() {
-    echo -e "${CYAN}Waiting for Ollama API...${NC}"
-    for i in $(seq 1 15); do
-        if curl -sf "${OLLAMA_HOST}/api/tags" &>/dev/null; then
-            echo -e "${GREEN}Ollama is ready.${NC}"
-            return 0
-        fi
-        sleep 1
-    done
-    echo -e "${RED}Error: Ollama did not become ready in time. Check /tmp/ollama.log${NC}" >&2
-    exit 1
+usage() {
+    grep '^#' "$0" | grep -v '^#!/' | sed 's/^# \?//'
+    exit 0
 }
 
-ollama_model_exists() {
-    local model="$1"
-    curl -sf "${OLLAMA_HOST}/api/tags" \
-        | grep -q "\"${model}\""
-}
-
-ollama_pull() {
-    local model="$1"
-    echo -e "${CYAN}Pulling ${model}...${NC}"
-    # /api/pull streams NDJSON — forward it so the user sees progress
-    curl -sf -X POST "${OLLAMA_HOST}/api/pull" \
-        -d "{\"name\": \"${model}\"}" \
-        --no-buffer \
-        | while IFS= read -r line; do
-            status=$(echo "$line" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || true)
-            [ -n "$status" ] && echo -e "${GRAY}  ${model}: ${status}${NC}"
-        done
-    echo -e "${GREEN}  ${model}: pull complete.${NC}"
-}
-
-ollama_warmup() {
-    local model="$1"
-    echo -e "${CYAN}Warming up ${model}...${NC}"
-
-    case "$model" in
-        nomic-embed-text*)
-            curl -sf -X POST "${OLLAMA_HOST}/api/embeddings" \
-                -d "{\"model\": \"${model}\", \"keep_alive\": -1}" &>/dev/null
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -d|--down)
+            DO_DOWN=true
+            shift
+            ;;
+        -n|--nvidia)
+            INSTALL_NVIDIA=true
+            shift
+            ;;
+        -r|--runtime)
+            NVIDIA_RUNTIME="${2:-}"
+            [[ "$NVIDIA_RUNTIME" =~ ^(docker|containerd|crio)$ ]] || \
+                fail "Invalid runtime '$NVIDIA_RUNTIME'. Choose: docker, containerd, crio."
+            shift 2
+            ;;
+        -h|--help)
+            usage
             ;;
         *)
-            curl -sf -X POST "${OLLAMA_HOST}/api/generate" \
-                -d "{\"model\": \"${model}\", \"prompt\": \"hello\", \"keep_alive\": -1}" &>/dev/null
+            fail "Unknown option: $1  (use --help for usage)"
             ;;
     esac
+done
 
-    echo -e "${GREEN}  ${model}: warm-up done.${NC}"
-}
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper: download a file if it is not already present
+# ──────────────────────────────────────────────────────────────────────────────
 
-ollama_verify() {
-    echo -e "${CYAN}Verifying loaded models...${NC}"
-    curl -sf "${OLLAMA_HOST}/api/ps" | grep -o '"name":"[^"]*"' \
-        | while IFS= read -r entry; do
-            name=$(echo "$entry" | cut -d'"' -f4)
-            echo -e "${GREEN}  ✓ ${name}${NC}"
-        done
-}
+download_if_missing() {
+    local file="$1"
+    local base_uri="$2"
+    local dest="$SCRIPT_DIR/$file"
 
-# ---------------------------------------------------------------------------
-# 3. Native Ollama setup (Apple Silicon only)
-# ---------------------------------------------------------------------------
-
-if [ "$USE_NATIVE_OLLAMA" = true ]; then
-
-    # --- Install if missing ---
-    if ! command -v ollama &>/dev/null; then
-        echo -e "${YELLOW}Ollama not found. Installing via Homebrew...${NC}"
-        if ! command -v brew &>/dev/null; then
-            echo -e "${RED}Error: Homebrew is required. Install it from https://brew.sh${NC}" >&2
-            exit 1
-        fi
-        brew install ollama
+    if [[ -f "$dest" ]]; then
+        success "$file already present."
+        return
     fi
 
-    # --- Start service if not already running ---
-    if ! curl -sf "${OLLAMA_HOST}/api/tags" &>/dev/null; then
-        echo -e "${CYAN}Starting Ollama service...${NC}"
-        ollama serve &>/tmp/ollama.log &
-        ollama_wait_ready
+    info "Downloading $file ..."
+    curl -fsSL "$base_uri/$file" -o "$dest" \
+        || fail "Failed to download $file from $base_uri. Check your internet connection."
+    success "$file downloaded."
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Self-bootstrap: download all required files if missing
+# ──────────────────────────────────────────────────────────────────────────────
+
+bootstrap() {
+    step "Checking required files"
+
+    # Compose files
+    download_if_missing "$BASE_COMPOSE" "$COMPOSE_URL"
+    download_if_missing "$LLM_COMPOSE"  "$COMPOSE_URL"
+
+    # Installer scripts
+    download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
+    chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Pre-flight checks
+# ──────────────────────────────────────────────────────────────────────────────
+
+preflight_checks() {
+    step "Pre-flight checks"
+
+    command -v docker &>/dev/null   || fail "docker is not installed or not on PATH."
+    success "Docker found."
+
+    docker info &>/dev/null         || fail "Docker daemon is not running. Start it and try again."
+    success "Docker daemon is running."
+
+    command -v curl &>/dev/null     || fail "curl is required but not installed."
+    success "curl found."
+
+    success "Pre-flight checks passed."
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. GPU detection
+# ──────────────────────────────────────────────────────────────────────────────
+
+detect_gpu() {
+    step "Detecting NVIDIA GPU"
+
+    if command -v nvidia-smi &>/dev/null; then
+        local gpu
+        gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)
+        if [[ -n "$gpu" ]]; then
+            success "GPU detected: $gpu"
+            return 0
+        fi
+    fi
+
+    warn "No NVIDIA GPU detected — deploying in CPU-only mode."
+    return 1
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Build docker compose argument list
+# ──────────────────────────────────────────────────────────────────────────────
+
+compose_args() {
+    local with_llm="$1"   # "true" or "false"
+    local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE")
+    [[ "$with_llm" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+    echo "${args[@]}"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Tear down
+# ──────────────────────────────────────────────────────────────────────────────
+
+do_down() {
+    step "Stopping VeraDoc and cleaning volumes"
+    # shellcheck disable=SC2046
+    $(compose_args "true") down -v --rmi local \
+        || fail "docker compose down failed."
+    success "Stack stopped, volumes and local images removed."
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Deploy
+# ──────────────────────────────────────────────────────────────────────────────
+
+do_deploy() {
+    local has_gpu="$1"   # "true" or "false"
+    local mode
+    mode=$(if [[ "$has_gpu" == "true" ]]; then echo "GPU mode"; else echo "CPU-only mode"; fi)
+
+    # shellcheck disable=SC2046
+    local ca; ca=$(compose_args "$has_gpu")
+
+    step "Pulling latest images"
+    $ca pull || fail "docker compose pull failed."
+    success "Images up to date."
+
+    step "Starting VeraDoc stack ($mode)"
+    $ca up -d --remove-orphans || fail "docker compose up failed."
+    success "Stack is up."
+
+    step "Running services"
+    $ca ps
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7. Optional: install NVIDIA Container Toolkit (post-deploy)
+# ──────────────────────────────────────────────────────────────────────────────
+
+install_nvidia_toolkit() {
+    step "Installing NVIDIA Container Toolkit (post-deploy)"
+
+    # At this point the file is guaranteed to exist — bootstrap downloaded it
+    info "Running: $NVIDIA_SCRIPT --runtime $NVIDIA_RUNTIME"
+    bash "$SCRIPT_DIR/$NVIDIA_SCRIPT" --runtime "$NVIDIA_RUNTIME" \
+        || fail "NVIDIA toolkit installer failed."
+    success "NVIDIA Container Toolkit installed."
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────────────
+
+main() {
+    local action
+    action=$(if [[ "$DO_DOWN" == "true" ]]; then echo "Teardown"; else echo "Deploy"; fi)
+
+    echo -e "\n${C_MAGENTA}VeraDoc $action${C_RESET}"
+    echo -e "${C_MAGENTA}================================${C_RESET}"
+    local nvidia_label
+    nvidia_label=$(if [[ "$INSTALL_NVIDIA" == "true" && "$DO_DOWN" == "false" ]]; then echo "yes ($NVIDIA_RUNTIME)"; else echo "no"; fi)
+    echo "  NVIDIA toolkit: $nvidia_label"
+    echo ""
+
+    bootstrap
+    preflight_checks
+
+    if [[ "$DO_DOWN" == "true" ]]; then
+        do_down
     else
-        echo -e "${GREEN}Ollama is already running at ${OLLAMA_HOST}.${NC}"
+        local has_gpu="false"
+        detect_gpu && has_gpu="true" || true
+
+        do_deploy "$has_gpu"
+
+        if [[ "$INSTALL_NVIDIA" == "true" ]]; then
+            install_nvidia_toolkit
+        fi
+
+        echo ""
+        echo -e "  ${C_GRAY}UI:${C_RESET}  ${C_WHITE}http://localhost:${UI_PORT}${C_RESET}"
     fi
 
-    # --- Pull + warm up each default model ---
-    for model in "${DEFAULT_MODELS[@]}"; do
-        if ollama_model_exists "$model"; then
-            echo -e "${GREEN}Model already present: ${model}${NC}"
-        else
-            ollama_pull "$model"
-        fi
-        ollama_warmup "$model"
-    done
+    echo -e "\n${C_MAGENTA}================================${C_RESET}"
+    echo -e "${C_GREEN}VeraDoc $action complete!${C_RESET}\n"
+}
 
-    # --- Verify (mirrors the sidecar's final check) ---
-    ollama_verify
-
-fi
-
-# ---------------------------------------------------------------------------
-# 4. Deploy Docker Services
-# ---------------------------------------------------------------------------
-
-echo -e "${GRAY}--- Starting Services ---${NC}"
-
-if [ "$USE_NATIVE_OLLAMA" = true ]; then
-    # LLM compose not needed — Ollama runs natively on the host.
-    # Pass OLLAMA_HOST so app containers reach it via host.docker.internal.
-    OLLAMA_HOST="http://host.docker.internal:11434" \
-        docker compose -f "$BASE_COMPOSE" up -d
-elif [ "$HAS_GPU" = true ]; then
-    docker compose -f "$BASE_COMPOSE" -f "$LLM_COMPOSE" up -d
-else
-    docker compose -f "$BASE_COMPOSE" up -d
-fi
-
-echo -e "${GREEN}--- Services Started ---${NC}"
-echo "UI:      http://localhost:4200"
+main "$@"

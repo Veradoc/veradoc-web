@@ -1,55 +1,288 @@
-# --- VeraDoc Deployment Orchestrator (PowerShell) ---
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    VeraDoc Deployment Orchestrator for Windows (WSL + Docker Compose).
 
+.DESCRIPTION
+    Downloads the required Compose files and installer scripts from veradoc.ai
+    if missing, detects NVIDIA GPU availability, and brings the stack up or down.
+    Optionally installs the NVIDIA Container Toolkit after a successful deploy.
+
+.PARAMETER Down
+    Tear down the stack and remove local images and volumes.
+
+.PARAMETER WSLDistro
+    WSL distribution to target. Defaults to the system default.
+
+.PARAMETER InstallNvidiaToolkit
+    After a successful deploy, run the NVIDIA Container Toolkit installer.
+
+.PARAMETER NvidiaRuntime
+    Runtime to configure when -InstallNvidiaToolkit is used.
+    Valid values: docker (default), containerd, crio.
+
+.EXAMPLE
+    # Standard deploy (auto-detects GPU)
+    .\deploy.ps1
+
+.EXAMPLE
+    # Deploy then install the NVIDIA Container Toolkit
+    .\deploy.ps1 -InstallNvidiaToolkit
+
+.EXAMPLE
+    # Tear down stack
+    .\deploy.ps1 -Down
+#>
+
+[CmdletBinding()]
+param(
+    [switch]$Down,
+    [string]$WSLDistro = '',
+    [switch]$InstallNvidiaToolkit,
+    [ValidateSet('docker', 'containerd', 'crio')]
+    [string]$NvidiaRuntime = 'docker'
+)
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$baseUrl = "https://veradoc.ai/compose"
-$baseCompose = "docker-base.yml"
-$llmCompose = "docker-llm.yml"
+# ──────────────────────────────────────────────────────────────────────────────
+# Config
+# ──────────────────────────────────────────────────────────────────────────────
 
-# 1. Self-Bootstrap: Download files if they are missing
-$requiredFiles = @($baseCompose, $llmCompose)
-foreach ($file in $requiredFiles) {
-    if (-not (Test-Path $file)) {
-        Write-Host "Fetching $file from server..." -ForegroundColor Cyan
-        try {
-            Invoke-WebRequest -Uri "$baseUrl/$file" -OutFile $file -ErrorAction Stop
-        } catch {
-            Write-Error "Failed to download $file. Check your internet connection."
-            exit 1
+$ComposeUrl   = 'https://veradoc.ai/compose'
+$ScriptsUrl   = 'https://veradoc.ai/scripts'
+$BaseCompose  = 'docker-base.yml'
+$LlmCompose   = 'docker-llm.yml'
+$NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
+$UiPort       = 4200
+$ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$NvidiaScript = Join-Path $ScriptDir $NvidiaFile
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Write-Step    { param([string]$m) Write-Host "`n==> $m" -ForegroundColor Cyan }
+function Write-Success { param([string]$m) Write-Host "    [OK] $m" -ForegroundColor Green }
+function Write-Warn    { param([string]$m) Write-Host "    [WARN] $m" -ForegroundColor Yellow }
+function Write-Fail    { param([string]$m) Write-Host "`n[ERROR] $m" -ForegroundColor Red }
+function Write-Info    { param([string]$m) Write-Host "    $m" -ForegroundColor Gray }
+
+function Invoke-Wsl {
+    param([string[]]$Command, [string]$ErrorMessage = 'WSL command failed')
+    if ($WSLDistro -ne '') {
+        wsl -d $WSLDistro -- @Command
+    } else {
+        wsl -- @Command
+    }
+    if ($LASTEXITCODE -ne 0) { throw "$ErrorMessage (exit $LASTEXITCODE)" }
+}
+
+function ConvertTo-WslPath {
+    param([string]$WinPath)
+    $p = wsl wslpath -u $WinPath 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "wslpath conversion failed for: $WinPath" }
+    return $p.Trim()
+}
+
+function Invoke-DownloadIfMissing {
+    param([string]$File, [string]$BaseUri)
+    $dest = Join-Path $ScriptDir $File
+    if (Test-Path $dest) {
+        Write-Success "$File already present."
+        return
+    }
+    Write-Info "Downloading $File ..."
+    try {
+        Invoke-WebRequest -Uri "$BaseUri/$File" -OutFile $dest -ErrorAction Stop
+        Write-Success "$File downloaded."
+    } catch {
+        throw "Failed to download $File from $BaseUri. Check your internet connection.`n$($_.Exception.Message)"
+    }
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Self-bootstrap: download all required files if missing
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Invoke-Bootstrap {
+    Write-Step 'Checking required files'
+
+    # Compose files
+    foreach ($file in @($BaseCompose, $LlmCompose)) {
+        Invoke-DownloadIfMissing -File $file -BaseUri $ComposeUrl
+    }
+
+    # Installer scripts
+    Invoke-DownloadIfMissing -File $NvidiaFile -BaseUri $ScriptsUrl
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Pre-flight checks
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Invoke-Preflight {
+    Write-Step 'Pre-flight checks'
+
+    if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+        throw 'WSL is not installed or not on PATH. Enable WSL2: https://aka.ms/wsl2'
+    }
+    Write-Success 'WSL found.'
+
+    if ($WSLDistro -ne '') {
+        $distros = wsl --list --quiet 2>$null
+        if ($distros -notcontains $WSLDistro) {
+            throw "WSL distro '$WSLDistro' not found. Run 'wsl --list' to see available distros."
+        }
+        Write-Success "WSL distro '$WSLDistro' found."
+    }
+
+    try {
+        Invoke-Wsl @('docker', 'info', '--format', '{{.ServerVersion}}') `
+            -ErrorMessage 'Docker unreachable' | Out-Null
+        Write-Success 'Docker daemon is running inside WSL.'
+    } catch {
+        throw 'Docker daemon is not reachable inside WSL. Start Docker Desktop or the Docker service.'
+    }
+
+    Write-Success 'Pre-flight checks passed.'
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. GPU detection (native nvidia-smi first, then WSL fallback)
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Get-GpuAvailable {
+    Write-Step 'Detecting NVIDIA GPU'
+
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+        nvidia-smi -L 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $gpu = (nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1)
+            Write-Success "GPU detected (host): $gpu"
+            return $true
         }
     }
-}
 
-# 2. Check for "down" argument
-if ($args[0] -eq "down") {
-    Write-Host "Stopping VeraDoc and cleaning volumes..." -ForegroundColor Yellow
-    docker compose -f $baseCompose -f $llmCompose down -v --rmi local
-    Write-Host "Done." -ForegroundColor Green
-    exit 0
-}
-
-# 3. Hardware Detection (NVIDIA)
-$hasGpu = $false
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    nvidia-smi -L > $null 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        $hasGpu = $true
-        Write-Host "NVIDIA GPU detected. Activating hardware acceleration..." -ForegroundColor Cyan
+    try {
+        Invoke-Wsl @('nvidia-smi', '-L') -ErrorMessage 'no gpu in wsl' | Out-Null
+        Write-Success 'GPU detected (via WSL).'
+        return $true
+    } catch {
+        Write-Warn 'No NVIDIA GPU detected — deploying in CPU-only mode.'
+        return $false
     }
 }
 
-if (-not $hasGpu) {
-    Write-Host "No NVIDIA GPU detected. Deploying in CPU-only mode..." -ForegroundColor Yellow
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Build docker compose argument list
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Get-ComposeArgs {
+    param([bool]$WithLlm)
+    $basePath = ConvertTo-WslPath (Join-Path $ScriptDir $BaseCompose)
+    $a        = @('docker', 'compose', '-f', $basePath)
+    if ($WithLlm) {
+        $llmPath = ConvertTo-WslPath (Join-Path $ScriptDir $LlmCompose)
+        $a      += @('-f', $llmPath)
+    }
+    return $a
 }
 
-# 4. Deploy Services
-Write-Host "--- Deploying Services ---" -ForegroundColor Gray
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Tear down
+# ──────────────────────────────────────────────────────────────────────────────
 
-if ($hasGpu) {
-    docker compose -f $baseCompose -f $llmCompose up -d
-} else {
-    docker compose -f $baseCompose up -d
+function Invoke-Down {
+    Write-Step 'Stopping VeraDoc and cleaning volumes'
+    $ca = Get-ComposeArgs -WithLlm $true
+    Invoke-Wsl (@($ca) + @('down', '-v', '--rmi', 'local')) `
+        -ErrorMessage 'docker compose down failed'
+    Write-Success 'Stack stopped, volumes and local images removed.'
 }
 
-Write-Host "--- Services Started ---" -ForegroundColor Green
-Write-Host "UI:      http://localhost:4200"
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Deploy
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Invoke-Deploy {
+    param([bool]$HasGpu)
+
+    $ca   = Get-ComposeArgs -WithLlm $HasGpu
+    $mode = if ($HasGpu) { 'GPU mode' } else { 'CPU-only mode' }
+
+    Write-Step 'Pulling latest images'
+    Invoke-Wsl (@($ca) + @('pull')) -ErrorMessage 'docker compose pull failed'
+    Write-Success 'Images up to date.'
+
+    Write-Step "Starting VeraDoc stack ($mode)"
+    Invoke-Wsl (@($ca) + @('up', '-d', '--remove-orphans')) `
+        -ErrorMessage 'docker compose up failed'
+    Write-Success 'Stack is up.'
+
+    Write-Step 'Running services'
+    Invoke-Wsl (@($ca) + @('ps'))
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7. Optional: install NVIDIA Container Toolkit (post-deploy)
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Invoke-NvidiaInstall {
+    Write-Step 'Installing NVIDIA Container Toolkit (post-deploy)'
+
+    # At this point the file is guaranteed to exist — bootstrap downloaded it
+    $nvArgs = @('-ExecutionPolicy', 'Bypass', '-File', $NvidiaScript, '-ContainerRuntime', $NvidiaRuntime)
+    if ($WSLDistro -ne '') { $nvArgs += @('-WSLDistro', $WSLDistro) }
+
+    Write-Info "Running: $NvidiaFile -ContainerRuntime $NvidiaRuntime"
+    $proc = Start-Process pwsh -ArgumentList $nvArgs -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        throw "NVIDIA toolkit installer failed (exit $($proc.ExitCode))."
+    }
+    Write-Success 'NVIDIA Container Toolkit installed.'
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Main {
+    $action = if ($Down) { 'Teardown' } else { 'Deploy' }
+
+    Write-Host "`nVeraDoc $action" -ForegroundColor Magenta
+    Write-Host '================================' -ForegroundColor Magenta
+    Write-Host "  WSL distro    : $(if ($WSLDistro) { $WSLDistro } else { '(default)' })"
+    Write-Host "  NVIDIA toolkit: $(if ($InstallNvidiaToolkit -and -not $Down) { "yes ($NvidiaRuntime)" } else { 'no' })"
+    Write-Host ''
+
+    try {
+        Invoke-Bootstrap
+        Invoke-Preflight
+
+        if ($Down) {
+            Invoke-Down
+        } else {
+            $hasGpu = Get-GpuAvailable
+            Invoke-Deploy -HasGpu $hasGpu
+
+            if ($InstallNvidiaToolkit) {
+                Invoke-NvidiaInstall
+            }
+
+            Write-Host ''
+            Write-Host '  UI:  ' -NoNewline -ForegroundColor Gray
+            Write-Host "http://localhost:$UiPort" -ForegroundColor White
+        }
+
+        Write-Host "`n================================" -ForegroundColor Magenta
+        Write-Host "VeraDoc $action complete!`n" -ForegroundColor Green
+
+    } catch {
+        Write-Fail $_.Exception.Message
+        exit 1
+    }
+}
+
+Main
