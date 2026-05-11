@@ -22,9 +22,6 @@
 .PARAMETER SkipRuntimeConfig
     Skip the post-install runtime configuration step.
 
-.PARAMETER Verbose
-    Print extra diagnostic output.
-
 .EXAMPLE
     # Install and configure for Docker (default)
     .\Install-NvidiaContainerToolkit.ps1
@@ -58,8 +55,13 @@ param(
     [switch]$SkipRuntimeConfig
 )
 
-Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Platform detection (PS 5.1 only runs on Windows — $env:OS is reliable)
+# ──────────────────────────────────────────────────────────────────────────────
+
+$script:IsWindowsHost = ($env:OS -eq 'Windows_NT')
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -91,19 +93,15 @@ function Invoke-Shell {
         [string[]]$Command,
         [string]$ErrorMessage = 'Command failed'
     )
-    # Detecta Windows de forma compatible con PS 5.1 y PS 7
-    $actualIsWindows = $env:OS -eq 'Windows_NT' -or $PSVersionTable.Platform -eq 'Unix' -eq $false    
 
-    if ($actualIsWindows) {
-        # Run inside WSL
+    if ($script:IsWindowsHost) {
         if ($WSLDistro -ne '') {
-            $result = wsl -d $WSLDistro -- @Command
+            $result = & wsl -d $WSLDistro -- @Command
         } else {
-            $result = wsl -- @Command
+            $result = & wsl -- @Command
         }
     } else {
-        # Native Linux — use bash
-        $result = bash -c ($Command -join ' ')
+        $result = & bash -c ($Command -join ' ')
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -112,7 +110,7 @@ function Invoke-Shell {
     return $result
 }
 
-# Run a shell command with sudo.
+# Run a shell command prefixed with sudo.
 function Invoke-Sudo {
     param(
         [string[]]$Command,
@@ -122,51 +120,41 @@ function Invoke-Sudo {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Platform detection
-# ──────────────────────────────────────────────────────────────────────────────
-
-function Get-LinuxDistroFamily {
-    $osRelease = Invoke-Shell -Command @('cat', '/etc/os-release') `
-                              -ErrorMessage 'Cannot read /etc/os-release'
-    $idLine = ($osRelease | Select-String '^ID_LIKE=|^ID=') | Select-Object -First 1
-    if ($idLine -match '(debian|ubuntu)') { return 'debian' }
-    if ($idLine -match '(rhel|centos|fedora|sles|opensuse)') { return 'rhel' }
-    throw "Unsupported Linux distribution. Only Debian/Ubuntu and RHEL/CentOS/Fedora are supported."
-}
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Pre-flight checks
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Invoke-PreflightChecks {
     Write-Step "Running pre-flight checks"
 
-    # On Windows, verify WSL is available
-    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+    if ($script:IsWindowsHost) {
         $wslExe = Get-Command wsl -ErrorAction SilentlyContinue
         if (-not $wslExe) {
             throw "WSL is not installed or not on PATH. Enable WSL2 first: https://aka.ms/wsl2"
         }
         Write-Success "WSL found: $($wslExe.Source)"
 
-        # Check the target distro is running
-        $distros = wsl --list --quiet 2>$null
-        if ($WSLDistro -ne '' -and ($distros -notcontains $WSLDistro)) {
-            throw "WSL distribution '$WSLDistro' not found. Available: $($distros -join ', ')"
+        if ($WSLDistro -ne '') {
+            # PS 5.1: wsl --list --quiet returns null-padded UTF-16 strings; clean them up
+            $rawDistros = & wsl --list --quiet 2>$null
+            $distros = $rawDistros | ForEach-Object { ($_ -replace '\x00', '').Trim() } | Where-Object { $_ -ne '' }
+            if ($distros -notcontains $WSLDistro) {
+                throw "WSL distribution '$WSLDistro' not found. Available: $($distros -join ', ')"
+            }
         }
     }
 
     # Check NVIDIA driver is visible inside the shell environment
     try {
-        $nvidiaSmi = Invoke-Shell -Command @('nvidia-smi', '--query-gpu=name', '--format=csv,noheader')
+        $nvidiaSmi = Invoke-Shell -Command @('nvidia-smi', '--query-gpu=name', '--format=csv,noheader') `
+                                  -ErrorMessage 'nvidia-smi check'
         Write-Success "NVIDIA GPU detected: $($nvidiaSmi -join ', ')"
     } catch {
-        Write-Warn "nvidia-smi not found or no GPU detected. Continuing anyway - ensure the NVIDIA driver is installed."
+        Write-Warn "nvidia-smi not found or no GPU detected — ensure the NVIDIA driver is installed on the host."
     }
 
     # Check the selected container runtime exists
     try {
-        Invoke-Shell -Command @('which', $ContainerRuntime) | Out-Null
+        Invoke-Shell -Command @('which', $ContainerRuntime) -ErrorMessage 'which check' | Out-Null
         Write-Success "Container runtime '$ContainerRuntime' is installed."
     } catch {
         Write-Warn "'$ContainerRuntime' binary not found. Install it before running this script."
@@ -182,33 +170,25 @@ function Invoke-PreflightChecks {
 function Install-DebianBased {
     Write-Step "Detected Debian/Ubuntu — using apt"
 
-    # 1. Install prerequisites
-    Write-Verbose "Installing curl and gnupg..."
+    Write-Step "Installing prerequisites (curl, gnupg, ca-certificates)"
     Invoke-Sudo @('apt-get', 'update', '-y')
     Invoke-Sudo @('apt-get', 'install', '-y', 'curl', 'gnupg', 'ca-certificates')
+    Write-Success "Prerequisites installed."
 
-    # 2. Add NVIDIA GPG key
     Write-Step "Adding NVIDIA GPG key"
-    $keyCmd = @(
+    Invoke-Sudo -Command @(
         'bash', '-c',
-        'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | ' +
-        'gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg'
-    )
-    Invoke-Sudo $keyCmd -ErrorMessage "Failed to add NVIDIA GPG key"
+        'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg'
+    ) -ErrorMessage "Failed to add NVIDIA GPG key"
     Write-Success "GPG key added."
 
-    # 3. Add apt repository
     Write-Step "Adding NVIDIA apt repository"
-    $repoCmd = @(
+    Invoke-Sudo -Command @(
         'bash', '-c',
-        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | ' +
-        'sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | ' +
-        'tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
-    )
-    Invoke-Sudo $repoCmd -ErrorMessage "Failed to add apt repository"
+        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
+    ) -ErrorMessage "Failed to add apt repository"
     Write-Success "Repository added."
 
-    # 4. Install toolkit
     Write-Step "Installing nvidia-container-toolkit"
     Invoke-Sudo @('apt-get', 'update', '-y')
     Invoke-Sudo @('apt-get', 'install', '-y', 'nvidia-container-toolkit')
@@ -222,21 +202,17 @@ function Install-DebianBased {
 function Install-RhelBased {
     Write-Step "Detected RHEL/CentOS/Fedora — using dnf/yum"
 
-    # Detect package manager
+    # Prefer dnf if available, fall back to yum
     $pkgMgr = 'yum'
-    try { Invoke-Shell @('which', 'dnf') | Out-Null; $pkgMgr = 'dnf' } catch {}
+    try { Invoke-Shell -Command @('which', 'dnf') -ErrorMessage 'dnf check' | Out-Null; $pkgMgr = 'dnf' } catch {}
 
-    # 1. Add NVIDIA repository
     Write-Step "Adding NVIDIA dnf/yum repository"
-    $repoCmd = @(
+    Invoke-Sudo -Command @(
         'bash', '-c',
-        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | ' +
-        'tee /etc/yum.repos.d/nvidia-container-toolkit.repo'
-    )
-    Invoke-Sudo $repoCmd -ErrorMessage "Failed to add yum/dnf repository"
+        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | tee /etc/yum.repos.d/nvidia-container-toolkit.repo'
+    ) -ErrorMessage "Failed to add yum/dnf repository"
     Write-Success "Repository added."
 
-    # 2. Install toolkit
     Write-Step "Installing nvidia-container-toolkit"
     Invoke-Sudo @($pkgMgr, 'install', '-y', 'nvidia-container-toolkit')
     Write-Success "nvidia-container-toolkit installed."
@@ -248,33 +224,14 @@ function Install-RhelBased {
 
 function Invoke-RuntimeConfig {
     Write-Step "Configuring runtime: $ContainerRuntime"
+    Invoke-Sudo @('nvidia-ctk', 'runtime', 'configure', "--runtime=$ContainerRuntime")
+    Write-Success "nvidia-ctk runtime configured."
 
-    switch ($ContainerRuntime) {
-        'docker' {
-            Invoke-Sudo @('nvidia-ctk', 'runtime', 'configure', '--runtime=docker')
-            Write-Success "Docker runtime configured."
-
-            Write-Step "Restarting Docker daemon"
-            Invoke-Sudo @('systemctl', 'restart', 'docker') -ErrorMessage `
-                "Failed to restart Docker. If running in WSL without systemd, restart Docker manually."
-            Write-Success "Docker restarted."
-        }
-        'containerd' {
-            Invoke-Sudo @('nvidia-ctk', 'runtime', 'configure', '--runtime=containerd')
-            Write-Success "containerd runtime configured."
-
-            Write-Step "Restarting containerd"
-            Invoke-Sudo @('systemctl', 'restart', 'containerd')
-            Write-Success "containerd restarted."
-        }
-        'crio' {
-            Invoke-Sudo @('nvidia-ctk', 'runtime', 'configure', '--runtime=crio')
-            Write-Success "CRI-O runtime configured."
-
-            Write-Step "Restarting CRI-O"
-            Invoke-Sudo @('systemctl', 'restart', 'crio')
-            Write-Success "CRI-O restarted."
-        }
+    try {
+        Invoke-Sudo @('systemctl', 'restart', $ContainerRuntime)
+        Write-Success "$ContainerRuntime restarted successfully."
+    } catch {
+        Write-Warn "Could not restart $ContainerRuntime automatically — a manual restart may be required."
     }
 }
 
@@ -286,8 +243,8 @@ function Invoke-Verification {
     Write-Step "Verifying installation"
 
     try {
-        $version = Invoke-Shell @('nvidia-ctk', '--version')
-        Write-Success "nvidia-ctk version: $version"
+        $version = Invoke-Shell -Command @('nvidia-ctk', '--version') -ErrorMessage 'nvidia-ctk version'
+        Write-Success "nvidia-ctk version: $($version -join ' ')"
     } catch {
         Write-Warn "nvidia-ctk not found on PATH after install — PATH may need updating."
     }
@@ -300,46 +257,41 @@ function Invoke-Verification {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Main
+# Main  (defined last so all functions above are already parsed by PS 5.1)
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Main {
     Write-Host "`nNVIDIA Container Toolkit Installer" -ForegroundColor Magenta
     Write-Host "====================================" -ForegroundColor Magenta
-    Write-Host "  Runtime  : $ContainerRuntime"
-    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
-        $distroLabel = if ($WSLDistro) { $WSLDistro } else { '(default)' }
-        Write-Host "  WSL Distro: $distroLabel"
-    }
-    Write-Host ""
 
     try {
         Invoke-PreflightChecks
 
-        $family = Get-LinuxDistroFamily
-        switch ($family) {
-            'debian' { Install-DebianBased }
-            'rhel'   { Install-RhelBased   }
+        # Detect distro family from /etc/os-release
+        $osRelease = Invoke-Shell -Command @('cat', '/etc/os-release') `
+                                  -ErrorMessage 'Cannot read /etc/os-release'
+        $osReleaseText = $osRelease -join "`n"
+
+        if ($osReleaseText -match '(debian|ubuntu)') {
+            Install-DebianBased
+        } elseif ($osReleaseText -match '(rhel|centos|fedora|sles|opensuse)') {
+            Install-RhelBased
+        } else {
+            throw "Unsupported Linux distribution. Only Debian/Ubuntu and RHEL/CentOS/Fedora are supported."
         }
 
         if (-not $SkipRuntimeConfig) {
             Invoke-RuntimeConfig
-        } else {
-            Write-Warn "Skipping runtime configuration (-SkipRuntimeConfig was set)."
         }
 
         Invoke-Verification
 
-        Write-Host "`n====================================`n" -ForegroundColor Magenta
-        Write-Host "Installation complete!" -ForegroundColor Green
-        Write-Host "NVIDIA Container Toolkit is ready for GPU-accelerated containers.`n" `
-            -ForegroundColor Green
-
+        Write-Host "`nInstallation complete!" -ForegroundColor Green
     } catch {
         Write-Fail $_.Exception.Message
-        Write-Host "`nInstallation failed. See the error above for details." -ForegroundColor Red
         exit 1
     }
 }
 
+# Entry point — must be the last statement in the file
 Main
