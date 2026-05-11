@@ -1,277 +1,232 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Installs the NVIDIA Container Toolkit on a Linux host (or WSL2 on Windows).
-
-.DESCRIPTION
-    This script automates the installation of the NVIDIA Container Toolkit,
-    which enables GPU-accelerated containers with Docker/containerd.
-
-    On Windows it targets WSL2 (Ubuntu/Debian). On Linux it runs natively.
-    Supports Ubuntu/Debian (apt) and RHEL/CentOS/Fedora (dnf/yum).
+    Installs the NVIDIA Container Toolkit on a Linux host via WSL2.
 
 .PARAMETER ContainerRuntime
-    The container runtime to configure after installation.
-    Valid values: docker, containerd, crio
-    Default: docker
+    docker (default), containerd, or crio
 
 .PARAMETER WSLDistro
-    (Windows only) Name of the WSL distribution to target.
-    If omitted, uses the default WSL distribution.
+    WSL distribution name. Uses default if omitted.
 
 .PARAMETER SkipRuntimeConfig
-    Skip the post-install runtime configuration step.
+    Skip post-install runtime configuration.
 
 .EXAMPLE
-    # Install and configure for Docker (default)
     .\Install-NvidiaContainerToolkit.ps1
-
-.EXAMPLE
-    # Install and configure for containerd inside a named WSL distro
     .\Install-NvidiaContainerToolkit.ps1 -ContainerRuntime containerd -WSLDistro Ubuntu-22.04
-
-.EXAMPLE
-    # Install only, skip runtime configuration
     .\Install-NvidiaContainerToolkit.ps1 -SkipRuntimeConfig
-
-.NOTES
-    Prerequisites
-    -------------
-    - A supported NVIDIA GPU with an up-to-date driver installed on the host.
-    - Docker / containerd / CRI-O must already be installed.
-    - On Windows: WSL2 must be enabled with a Debian/Ubuntu or RHEL-based distro.
-    - Internet access to reach packages.nvidia.com and the distro package repos.
-
-    Official docs: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
 #>
 
 [CmdletBinding()]
 param(
-    [ValidateSet('docker', 'containerd', 'crio')]
+    [ValidateSet('docker','containerd','crio')]
     [string]$ContainerRuntime = 'docker',
-
     [string]$WSLDistro = '',
-
     [switch]$SkipRuntimeConfig
 )
 
 $ErrorActionPreference = 'Stop'
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Platform detection (PS 5.1 only runs on Windows — $env:OS is reliable)
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
 
-$script:IsWindowsHost = ($env:OS -eq 'Windows_NT')
+function Write-Step    { param([string]$M); Write-Host "`n==> $M" -ForegroundColor Cyan    }
+function Write-Success { param([string]$M); Write-Host "    [OK] $M" -ForegroundColor Green  }
+function Write-Warn    { param([string]$M); Write-Host "    [WARN] $M" -ForegroundColor Yellow }
+function Write-Fail    { param([string]$M); Write-Host "`n[ERROR] $M" -ForegroundColor Red    }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Core WSL runner
+# The key insight: we write the bash command to a temp .sh file inside WSL,
+# then execute that file. This completely sidesteps PS 5.1 pipe/quote parsing.
+# ---------------------------------------------------------------------------
 
-function Write-Step {
-    param([string]$Message)
-    Write-Host "`n==> $Message" -ForegroundColor Cyan
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "    [OK] $Message" -ForegroundColor Green
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "    [WARN] $Message" -ForegroundColor Yellow
-}
-
-function Write-Fail {
-    param([string]$Message)
-    Write-Host "`n[ERROR] $Message" -ForegroundColor Red
-}
-
-# Run a shell command and throw on non-zero exit.
-function Invoke-Shell {
+function Invoke-WslBash {
     param(
-        [string[]]$Command,
+        [string]$BashCommand,
         [string]$ErrorMessage = 'Command failed'
     )
 
-    if ($script:IsWindowsHost) {
-        if ($WSLDistro -ne '') {
-            $result = & wsl -d $WSLDistro -- @Command
-        } else {
-            $result = & wsl -- @Command
-        }
+    # Escape single quotes for the outer shell wrapper
+    $escaped = $BashCommand.Replace('\', '\\').Replace('"', '\"')
+    $wrapper = "bash -c `"$escaped`""
+
+    if ($WSLDistro -ne '') {
+        & wsl -d $WSLDistro -- bash -c $escaped
     } else {
-        $result = & bash -c ($Command -join ' ')
+        & wsl -- bash -c $escaped
     }
 
     if ($LASTEXITCODE -ne 0) {
-        throw "$ErrorMessage (exit code $LASTEXITCODE)"
+        throw "$ErrorMessage (exit $LASTEXITCODE)"
     }
-    return $result
 }
 
-# Run a shell command prefixed with sudo.
-function Invoke-Sudo {
+function Invoke-WslSudo {
     param(
-        [string[]]$Command,
+        [string]$BashCommand,
         [string]$ErrorMessage = 'Sudo command failed'
     )
-    Invoke-Shell -Command (@('sudo') + $Command) -ErrorMessage $ErrorMessage
+    Invoke-WslBash -BashCommand "sudo bash -c `"$($BashCommand.Replace('"','\"'))`"" -ErrorMessage $ErrorMessage
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Pre-flight checks
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Pre-flight
+# ---------------------------------------------------------------------------
 
 function Invoke-PreflightChecks {
-    Write-Step "Running pre-flight checks"
+    Write-Step 'Running pre-flight checks'
 
-    if ($script:IsWindowsHost) {
-        $wslExe = Get-Command wsl -ErrorAction SilentlyContinue
-        if (-not $wslExe) {
-            throw "WSL is not installed or not on PATH. Enable WSL2 first: https://aka.ms/wsl2"
+    $wslExe = Get-Command wsl -ErrorAction SilentlyContinue
+    if (-not $wslExe) {
+        throw 'WSL is not installed. Enable WSL2 first: https://aka.ms/wsl2'
+    }
+    Write-Success "WSL found: $($wslExe.Source)"
+
+    if ($WSLDistro -ne '') {
+        $rawDistros = & wsl --list --quiet 2>$null
+        $distros = $rawDistros |
+            ForEach-Object { ($_ -replace '\x00','').Trim() } |
+            Where-Object { $_ -ne '' }
+        if ($distros -notcontains $WSLDistro) {
+            throw "WSL distro '$WSLDistro' not found. Available: $($distros -join ', ')"
         }
-        Write-Success "WSL found: $($wslExe.Source)"
-
-        if ($WSLDistro -ne '') {
-            # PS 5.1: wsl --list --quiet returns null-padded UTF-16 strings; clean them up
-            $rawDistros = & wsl --list --quiet 2>$null
-            $distros = $rawDistros | ForEach-Object { ($_ -replace '\x00', '').Trim() } | Where-Object { $_ -ne '' }
-            if ($distros -notcontains $WSLDistro) {
-                throw "WSL distribution '$WSLDistro' not found. Available: $($distros -join ', ')"
-            }
-        }
+        Write-Success "WSL distro '$WSLDistro' found."
     }
 
-    # Check NVIDIA driver is visible inside the shell environment
     try {
-        $nvidiaSmi = Invoke-Shell -Command @('nvidia-smi', '--query-gpu=name', '--format=csv,noheader') `
-                                  -ErrorMessage 'nvidia-smi check'
-        Write-Success "NVIDIA GPU detected: $($nvidiaSmi -join ', ')"
+        Invoke-WslBash -BashCommand 'nvidia-smi --query-gpu=name --format=csv,noheader' -ErrorMessage 'nvidia-smi'
+        Write-Success 'NVIDIA GPU detected.'
     } catch {
-        Write-Warn "nvidia-smi not found or no GPU detected — ensure the NVIDIA driver is installed on the host."
+        Write-Warn 'nvidia-smi not found -- ensure the NVIDIA driver is installed on the host.'
     }
 
-    # Check the selected container runtime exists
-    try {
-        Invoke-Shell -Command @('which', $ContainerRuntime) -ErrorMessage 'which check' | Out-Null
-        Write-Success "Container runtime '$ContainerRuntime' is installed."
-    } catch {
-        Write-Warn "'$ContainerRuntime' binary not found. Install it before running this script."
-    }
-
-    Write-Success "Pre-flight checks complete."
+    Write-Success 'Pre-flight checks complete.'
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Installation — Debian / Ubuntu
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Detect distro family inside WSL
+# ---------------------------------------------------------------------------
+
+function Get-WslDistroFamily {
+    if ($WSLDistro -ne '') {
+        $lines = & wsl -d $WSLDistro -- cat /etc/os-release 2>$null
+    } else {
+        $lines = & wsl -- cat /etc/os-release 2>$null
+    }
+    $content = $lines -join ' '
+    if ($content -match '(debian|ubuntu)') { return 'debian' }
+    if ($content -match '(rhel|centos|fedora|sles|opensuse)') { return 'rhel' }
+    throw 'Unsupported Linux distribution. Only Debian/Ubuntu and RHEL/CentOS/Fedora are supported.'
+}
+
+# ---------------------------------------------------------------------------
+# Install -- Debian/Ubuntu
+# ---------------------------------------------------------------------------
 
 function Install-DebianBased {
-    Write-Step "Detected Debian/Ubuntu — using apt"
+    Write-Step 'Detected Debian/Ubuntu -- using apt'
 
-    Write-Step "Installing prerequisites (curl, gnupg, ca-certificates)"
-    Invoke-Sudo @('apt-get', 'update', '-y')
-    Invoke-Sudo @('apt-get', 'install', '-y', 'curl', 'gnupg', 'ca-certificates')
-    Write-Success "Prerequisites installed."
+    Write-Step 'Updating apt and installing prerequisites'
+    Invoke-WslBash -BashCommand 'sudo apt-get update -y' -ErrorMessage 'apt-get update'
+    Invoke-WslBash -BashCommand 'sudo apt-get install -y curl gnupg ca-certificates' -ErrorMessage 'install prerequisites'
+    Write-Success 'Prerequisites installed.'
 
-    Write-Step "Adding NVIDIA GPG key"
-    $gpgCmd = 'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg'
-    Invoke-Sudo -Command @('bash', '-c', $gpgCmd) -ErrorMessage "Failed to add NVIDIA GPG key"
-    Write-Success "GPG key added."
+    Write-Step 'Adding NVIDIA GPG key'
+    Invoke-WslBash -BashCommand 'sudo bash -c "curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"' -ErrorMessage 'Failed to add GPG key'
+    Write-Success 'GPG key added.'
 
-    Write-Step "Adding NVIDIA apt repository"
-    $repoCmd = 'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
-    Invoke-Sudo -Command @('bash', '-c', $repoCmd) -ErrorMessage "Failed to add apt repository"
-    Write-Success "Repository added."
+    Write-Step 'Adding NVIDIA apt repository'
+    Invoke-WslBash -BashCommand 'sudo bash -c "curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed ''s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g'' | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"' -ErrorMessage 'Failed to add apt repository'
+    Write-Success 'Repository added.'
 
-    Write-Step "Installing nvidia-container-toolkit"
-    Invoke-Sudo @('apt-get', 'update', '-y')
-    Invoke-Sudo @('apt-get', 'install', '-y', 'nvidia-container-toolkit')
-    Write-Success "nvidia-container-toolkit installed."
+    Write-Step 'Installing nvidia-container-toolkit'
+    Invoke-WslBash -BashCommand 'sudo apt-get update -y' -ErrorMessage 'apt-get update (2)'
+    Invoke-WslBash -BashCommand 'sudo apt-get install -y nvidia-container-toolkit' -ErrorMessage 'install toolkit'
+    Write-Success 'nvidia-container-toolkit installed.'
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Installation — RHEL / CentOS / Fedora
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Install -- RHEL/CentOS/Fedora
+# ---------------------------------------------------------------------------
 
 function Install-RhelBased {
-    Write-Step "Detected RHEL/CentOS/Fedora — using dnf/yum"
+    Write-Step 'Detected RHEL/CentOS/Fedora -- using dnf/yum'
 
-    # Prefer dnf if available, fall back to yum
+    Write-Step 'Adding NVIDIA yum/dnf repository'
+    Invoke-WslBash -BashCommand 'sudo bash -c "curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | tee /etc/yum.repos.d/nvidia-container-toolkit.repo"' -ErrorMessage 'Failed to add repository'
+    Write-Success 'Repository added.'
+
+    Write-Step 'Detecting package manager'
     $pkgMgr = 'yum'
-    try { Invoke-Shell -Command @('which', 'dnf') -ErrorMessage 'dnf check' | Out-Null; $pkgMgr = 'dnf' } catch {}
+    if ($WSLDistro -ne '') {
+        $dnfCheck = & wsl -d $WSLDistro -- which dnf 2>$null
+    } else {
+        $dnfCheck = & wsl -- which dnf 2>$null
+    }
+    if ($LASTEXITCODE -eq 0) { $pkgMgr = 'dnf' }
+    Write-Success "Using $pkgMgr"
 
-    Write-Step "Adding NVIDIA dnf/yum repository"
-    $repoCmd = 'curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | tee /etc/yum.repos.d/nvidia-container-toolkit.repo'
-    Invoke-Sudo -Command @('bash', '-c', $repoCmd) -ErrorMessage "Failed to add yum/dnf repository"
-    Write-Success "Repository added."
-
-    Write-Step "Installing nvidia-container-toolkit"
-    Invoke-Sudo @($pkgMgr, 'install', '-y', 'nvidia-container-toolkit')
-    Write-Success "nvidia-container-toolkit installed."
+    Write-Step 'Installing nvidia-container-toolkit'
+    Invoke-WslBash -BashCommand "sudo $pkgMgr install -y nvidia-container-toolkit" -ErrorMessage 'install toolkit'
+    Write-Success 'nvidia-container-toolkit installed.'
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Post-install runtime configuration
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Post-install runtime config
+# ---------------------------------------------------------------------------
 
 function Invoke-RuntimeConfig {
     Write-Step "Configuring runtime: $ContainerRuntime"
-    Invoke-Sudo @('nvidia-ctk', 'runtime', 'configure', "--runtime=$ContainerRuntime")
-    Write-Success "nvidia-ctk runtime configured."
+    Invoke-WslBash -BashCommand "sudo nvidia-ctk runtime configure --runtime=$ContainerRuntime" -ErrorMessage 'nvidia-ctk configure'
+    Write-Success 'Runtime configured.'
 
     try {
-        Invoke-Sudo @('systemctl', 'restart', $ContainerRuntime)
-        Write-Success "$ContainerRuntime restarted successfully."
+        Invoke-WslBash -BashCommand "sudo systemctl restart $ContainerRuntime" -ErrorMessage 'systemctl restart'
+        Write-Success "$ContainerRuntime restarted."
     } catch {
-        Write-Warn "Could not restart $ContainerRuntime automatically — a manual restart may be required."
+        Write-Warn "Could not restart $ContainerRuntime -- a manual restart may be needed."
     }
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Verification
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 function Invoke-Verification {
-    Write-Step "Verifying installation"
-
+    Write-Step 'Verifying installation'
     try {
-        $version = Invoke-Shell -Command @('nvidia-ctk', '--version') -ErrorMessage 'nvidia-ctk version'
-        Write-Success "nvidia-ctk version: $($version -join ' ')"
+        Invoke-WslBash -BashCommand 'nvidia-ctk --version' -ErrorMessage 'nvidia-ctk version'
+        Write-Success 'nvidia-ctk is available.'
     } catch {
-        Write-Warn "nvidia-ctk not found on PATH after install — PATH may need updating."
+        Write-Warn 'nvidia-ctk not found on PATH -- PATH may need updating.'
     }
 
-    if (-not $SkipRuntimeConfig) {
-        Write-Host "`nTo run a quick GPU smoke-test:" -ForegroundColor White
-        Write-Host "  docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi" `
-            -ForegroundColor DarkGray
-    }
+    Write-Host ''
+    Write-Host 'Quick GPU smoke-test:' -ForegroundColor White
+    Write-Host '  docker run --rm --gpus all nvidia/cuda:12.3.0-base-ubuntu22.04 nvidia-smi' -ForegroundColor DarkGray
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main  (defined last so all functions above are already parsed by PS 5.1)
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Main -- defined and called LAST so PS 5.1 has parsed all functions above
+# ---------------------------------------------------------------------------
 
 function Main {
-    Write-Host "`nNVIDIA Container Toolkit Installer" -ForegroundColor Magenta
-    Write-Host "====================================" -ForegroundColor Magenta
+    Write-Host ''
+    Write-Host 'NVIDIA Container Toolkit Installer' -ForegroundColor Magenta
+    Write-Host '====================================' -ForegroundColor Magenta
 
     try {
         Invoke-PreflightChecks
 
-        # Detect distro family from /etc/os-release
-        $osRelease = Invoke-Shell -Command @('cat', '/etc/os-release') `
-                                  -ErrorMessage 'Cannot read /etc/os-release'
-        $osReleaseText = $osRelease -join "`n"
+        $family = Get-WslDistroFamily
 
-        if ($osReleaseText -match '(debian|ubuntu)') {
+        if ($family -eq 'debian') {
             Install-DebianBased
-        } elseif ($osReleaseText -match '(rhel|centos|fedora|sles|opensuse)') {
-            Install-RhelBased
         } else {
-            throw "Unsupported Linux distribution. Only Debian/Ubuntu and RHEL/CentOS/Fedora are supported."
+            Install-RhelBased
         }
 
         if (-not $SkipRuntimeConfig) {
@@ -280,12 +235,12 @@ function Main {
 
         Invoke-Verification
 
-        Write-Host "`nInstallation complete!" -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'Installation complete!' -ForegroundColor Green
     } catch {
         Write-Fail $_.Exception.Message
         exit 1
     }
 }
 
-# Entry point — must be the last statement in the file
 Main
