@@ -219,23 +219,21 @@ function Invoke-CleanConflicts {
     $foundAny = $false
 
     foreach ($svc in $veradocServices) {
-        # --filter name= is a substring match in Docker, so we grep the exact name
-        # from the full container list to avoid false positives
-        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=$svc") `
-                  -ErrorMessage "docker ps failed while checking $svc"
+        # Buscamos el ID del contenedor
+        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=$svc") -ErrorMessage "docker ps failed while checking $svc"
+        
+        # Limpiamos el resultado
         $id = ($id -split "`n" | Where-Object { $_.Trim() -ne '' }) -join ' '
 
         if ($id -ne '') {
-            # Verify it is an exact name match, not a substring (e.g. "veradoc-back" vs "veradoc-back-2")
-            $name = Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id.Trim()) `
-                        -ErrorMessage "docker inspect failed for $id"
+            # Verificamos coincidencia exacta de nombre
+            $name = Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id.Trim()) -ErrorMessage "docker inspect failed for $id"
             $name = $name.Trim().TrimStart('/')
 
             if ($name -eq $svc) {
                 $foundAny = $true
-                Write-Warn "Conflicting container found: $svc — removing..."
-                Invoke-Wsl @('docker', 'rm', '-f', $id.Trim()) `
-                    -ErrorMessage "Failed to remove container $svc"
+                Write-Warn "Conflicting container found: $svc - removing..."
+                Invoke-Wsl @('docker', 'rm', '-f', $id.Trim()) -ErrorMessage "Failed to remove container $svc"
                 Write-Success "Removed: $svc"
             }
         }
