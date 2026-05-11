@@ -176,17 +176,13 @@ function Install-DebianBased {
     Write-Success "Prerequisites installed."
 
     Write-Step "Adding NVIDIA GPG key"
-    Invoke-Sudo -Command @(
-        'bash', '-c',
-        'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg'
-    ) -ErrorMessage "Failed to add NVIDIA GPG key"
+    $gpgCmd = 'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg'
+    Invoke-Sudo -Command @('bash', '-c', $gpgCmd) -ErrorMessage "Failed to add NVIDIA GPG key"
     Write-Success "GPG key added."
 
     Write-Step "Adding NVIDIA apt repository"
-    Invoke-Sudo -Command @(
-        'bash', '-c',
-        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
-    ) -ErrorMessage "Failed to add apt repository"
+    $repoCmd = 'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list'
+    Invoke-Sudo -Command @('bash', '-c', $repoCmd) -ErrorMessage "Failed to add apt repository"
     Write-Success "Repository added."
 
     Write-Step "Installing nvidia-container-toolkit"
@@ -207,10 +203,8 @@ function Install-RhelBased {
     try { Invoke-Shell -Command @('which', 'dnf') -ErrorMessage 'dnf check' | Out-Null; $pkgMgr = 'dnf' } catch {}
 
     Write-Step "Adding NVIDIA dnf/yum repository"
-    Invoke-Sudo -Command @(
-        'bash', '-c',
-        'curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | tee /etc/yum.repos.d/nvidia-container-toolkit.repo'
-    ) -ErrorMessage "Failed to add yum/dnf repository"
+    $repoCmd = 'curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | tee /etc/yum.repos.d/nvidia-container-toolkit.repo'
+    Invoke-Sudo -Command @('bash', '-c', $repoCmd) -ErrorMessage "Failed to add yum/dnf repository"
     Write-Success "Repository added."
 
     Write-Step "Installing nvidia-container-toolkit"
