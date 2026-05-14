@@ -43,27 +43,45 @@ $ErrorActionPreference = 'Stop'
 # Config
 # ──────────────────────────────────────────────────────────────────────────────
 
-$ComposeUrl   = 'https://veradoc.ai/compose'
-$ScriptsUrl   = 'https://veradoc.ai/scripts'
-$BaseCompose  = 'docker-base.yml'
-$LlmCompose   = 'docker-llm.yml'
-$NvidiaFile   = 'Install-NvidiaContainerToolkit.ps1'
-$ProjectName  = 'veradoc-web'   # Must match the name used when the stack was first created
-$UiPort       = 4200
+$ComposeUrl  = 'https://veradoc.ai/compose'
+$ScriptsUrl  = 'https://veradoc.ai/scripts'
+$BaseCompose = 'docker-base.yml'
+$LlmCompose  = 'docker-llm.yml'
+$NvidiaFile  = 'Install-NvidiaContainerToolkit.ps1'
+$ProjectName = 'veradoc-web'
+$UiPort      = 4200
 
-# All files are downloaded into the current working directory by Invoke-Bootstrap.
-# Using $PWD works correctly both when run from disk and when piped via irm | iex.
 $ScriptDir    = $PWD.Path
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
+
+# Sidecar container names — these are init containers that run once and stop.
+# They are removed before each deploy so docker compose can recreate them
+# with the same name, but kept alive (stopped) between deploys for log access.
+$Sidecars = @(
+    'ollama-sidecar',
+    'minio-sidecar-buckets',
+    'minio-sidecar-events'
+)
+
+# All long-lived service containers (never force-removed, only via compose down)
+$Services = @(
+    'ollama',
+    'minio',
+    'veradoc-back',
+    'veradoc-ui',
+    'nginx',
+    'postgres',
+    'redis'
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-function Write-Step    { param([string]$m) Write-Host "`n==> $m" -ForegroundColor Cyan }
-function Write-Success { param([string]$m) Write-Host "    [OK] $m" -ForegroundColor Green }
+function Write-Step    { param([string]$m) Write-Host "`n==> $m" -ForegroundColor Cyan    }
+function Write-Success { param([string]$m) Write-Host "    [OK] $m" -ForegroundColor Green  }
 function Write-Warn    { param([string]$m) Write-Host "    [WARN] $m" -ForegroundColor Yellow }
-function Write-Fail    { param([string]$m) Write-Host "`n[ERROR] $m" -ForegroundColor Red }
+function Write-Fail    { param([string]$m) Write-Host "`n[ERROR] $m" -ForegroundColor Red    }
 function Write-Info    { param([string]$m) Write-Host "    $m" -ForegroundColor Gray }
 
 function Invoke-Wsl {
@@ -78,10 +96,8 @@ function Invoke-Wsl {
 
 function ConvertTo-WslPath {
     param([string]$WinPath)
-    # Pure PowerShell conversion — avoids wslpath escaping issues entirely.
-    # C:\foo\bar  ->  /mnt/c/foo/bar
-    $p = $WinPath -replace "\\", "/"          # backslashes -> forward slashes
-    $p = $p -replace "^([A-Za-z]):/", "/mnt/`$1/"  # drive letter -> /mnt/x/
+    $p = $WinPath -replace "\\", "/"
+    $p = $p -replace "^([A-Za-z]):/", "/mnt/`$1/"
     return $p.ToLower().Trim()
 }
 
@@ -102,18 +118,42 @@ function Invoke-DownloadIfMissing {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. Self-bootstrap: download all required files if missing
+# Helper: remove a single container by exact name (only if it exists)
+# Returns $true if removed, $false if not found.
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Remove-ContainerByName {
+    param([string]$Name)
+
+    # -aq returns the ID only when the container exists (running or stopped)
+    $id = (Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=^${Name}$") -ErrorMessage "docker ps failed for $Name")
+    $id = ($id -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }) -join ''
+
+    if ($id -eq '') {
+        return $false
+    }
+
+    # Double-check the exact name to avoid prefix collisions
+    $actualName = (Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id) -ErrorMessage "docker inspect failed for $id")
+    $actualName = $actualName.Trim().TrimStart('/')
+
+    if ($actualName -ne $Name) {
+        return $false
+    }
+
+    Invoke-Wsl @('docker', 'rm', '-f', $id) -ErrorMessage "Failed to remove container $Name" | Out-Null
+    return $true
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Self-bootstrap
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Invoke-Bootstrap {
     Write-Step 'Checking required files'
-
-    # Compose files
     foreach ($file in @($BaseCompose, $LlmCompose)) {
         Invoke-DownloadIfMissing -File $file -BaseUri $ComposeUrl
     }
-
-    # Installer scripts
     Invoke-DownloadIfMissing -File $NvidiaFile -BaseUri $ScriptsUrl
 }
 
@@ -149,7 +189,7 @@ function Invoke-Preflight {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. GPU detection (native nvidia-smi first, then WSL fallback)
+# 3. GPU detection
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GpuAvailable {
@@ -201,43 +241,47 @@ function Invoke-Down {
     Write-Success 'Stack stopped, volumes and local images removed.'
 }
 
-function Invoke-CleanConflicts {
-    # Docker derives the project name from the working directory when -p is not
-    # set inside the compose file itself. Running from different folders produces
-    # different project names (e.g. "deploy", "administrador", "veradoc-web"),
-    # which leaves orphaned containers that block the next `compose up`.
-    #
-    # Instead of relying on project-label filters (which depend on the name being
-    # consistent), we simply force-remove any container whose *exact* name matches
-    # a known VeraDoc service. Docker ps --filter uses a regex; wrapping the name
-    # in  word-boundary anchors avoids partial matches.
-    Write-Step 'Checking for conflicting containers from previous deploys'
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Remove previous sidecar containers
+#    Sidecars are init containers: they run once, then stay stopped.
+#    We remove them before each deploy so Docker can recreate them with
+#    the same container_name. The stopped container is available for log
+#    inspection right up until the next deploy runs this function.
+# ──────────────────────────────────────────────────────────────────────────────
 
-    $veradocServices = @('ollama', 'minio', 'veradoc-back', 'veradoc-ui',
-                         'ollama-sidecar', 'minio-sidecar-buckets', 'minio-sidecar-events',
-                         'nginx', 'postgres', 'redis')
+function Invoke-RemoveSidecars {
+    Write-Step 'Removing previous sidecar containers'
+    $anyFound = $false
+
+    foreach ($sidecar in $Sidecars) {
+        $removed = Remove-ContainerByName -Name $sidecar
+        if ($removed) {
+            $anyFound = $true
+            Write-Success "Removed stopped sidecar: $sidecar"
+        } else {
+            Write-Info "Sidecar not found (first run?): $sidecar"
+        }
+    }
+
+    if (-not $anyFound) {
+        Write-Info 'No previous sidecars to remove.'
+    }
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7. Remove conflicting long-lived service containers from previous deploys
+#    (different project name / working directory)
+# ──────────────────────────────────────────────────────────────────────────────
+
+function Invoke-CleanConflicts {
+    Write-Step 'Checking for conflicting service containers'
     $foundAny = $false
 
-    foreach ($svc in $veradocServices) {
-        # --filter name= is a substring match in Docker, so we grep the exact name
-        # from the full container list to avoid false positives
-        $id = Invoke-Wsl @('docker', 'ps', '-aq', '--filter', "name=$svc") `
-                  -ErrorMessage "docker ps failed while checking $svc"
-        $id = ($id -split "`n" | Where-Object { $_.Trim() -ne '' }) -join ' '
-
-        if ($id -ne '') {
-            # Verify it is an exact name match, not a substring (e.g. "veradoc-back" vs "veradoc-back-2")
-            $name = Invoke-Wsl @('docker', 'inspect', '--format', '{{.Name}}', $id.Trim()) `
-                        -ErrorMessage "docker inspect failed for $id"
-            $name = $name.Trim().TrimStart('/')
-
-            if ($name -eq $svc) {
-                $foundAny = $true
-                Write-Warn "Conflicting container found: $svc — removing..."
-                Invoke-Wsl @('docker', 'rm', '-f', $id.Trim()) `
-                    -ErrorMessage "Failed to remove container $svc"
-                Write-Success "Removed: $svc"
-            }
+    foreach ($svc in $Services) {
+        $removed = Remove-ContainerByName -Name $svc
+        if ($removed) {
+            $foundAny = $true
+            Write-Warn "Conflicting container removed: $svc"
         }
     }
 
@@ -247,7 +291,7 @@ function Invoke-CleanConflicts {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 6. Deploy
+# 8. Deploy
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Invoke-Deploy {
@@ -270,18 +314,18 @@ function Invoke-Deploy {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Optional: install NVIDIA Container Toolkit (post-deploy)
+# 9. Optional: install NVIDIA Container Toolkit (post-deploy)
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Invoke-NvidiaInstall {
     Write-Step 'Installing NVIDIA Container Toolkit (post-deploy)'
 
-    # File is guaranteed to exist — Invoke-Bootstrap downloaded it
     $nvArgs = @('-ExecutionPolicy', 'Bypass', '-File', $NvidiaScript, '-ContainerRuntime', $NvidiaRuntime)
     if ($WSLDistro -ne '') { $nvArgs += @('-WSLDistro', $WSLDistro) }
 
     Write-Info "Running: $NvidiaFile -ContainerRuntime $NvidiaRuntime"
-    $proc = Start-Process pwsh -ArgumentList $nvArgs -Wait -PassThru -NoNewWindow
+    $currentExe = (Get-Process -Id $PID).Path
+    $proc = Start-Process $currentExe -ArgumentList $nvArgs -Wait -PassThru -NoNewWindow
     if ($proc.ExitCode -ne 0) {
         throw "NVIDIA toolkit installer failed (exit $($proc.ExitCode))."
     }
@@ -289,23 +333,23 @@ function Invoke-NvidiaInstall {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# # ──────────────────────────────────────────────────────────────────────────────
-# Entry point — self-save when piped via irm | iex so parameters work normally
+# Entry point — self-save when piped via irm | iex
 # ──────────────────────────────────────────────────────────────────────────────
 
 $selfPath = Join-Path $PWD.Path 'deploy.ps1'
 $isPiped  = -not ($MyInvocation.MyCommand.Path)
 
 if ($isPiped) {
-    # Running via irm | iex — save ourselves to disk then re-execute as a real file
     $MyInvocation.MyCommand.ScriptContents | Set-Content -Path $selfPath -Encoding UTF8
     $relaunchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $selfPath)
     if ($Down)                        { $relaunchArgs += '-Down' }
     if ($WSLDistro -ne '')            { $relaunchArgs += @('-WSLDistro', $WSLDistro) }
     if ($NvidiaRuntime -ne 'docker')  { $relaunchArgs += @('-NvidiaRuntime', $NvidiaRuntime) }
     & pwsh @relaunchArgs
-} else {
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main — defined and called last so PS 5.1 has parsed all functions above
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Main {
@@ -314,7 +358,7 @@ function Main {
     Write-Host "`nVeraDoc $action" -ForegroundColor Magenta
     Write-Host '================================' -ForegroundColor Magenta
     Write-Host "  WSL distro    : $(if ($WSLDistro) { $WSLDistro } else { '(default)' })"
-    Write-Host "  NVIDIA toolkit: $(if (-not $Down) { "mandatory when GPU detected" } else { 'n/a' })"
+    Write-Host "  NVIDIA toolkit: $(if (-not $Down) { 'mandatory when GPU detected' } else { 'n/a' })"
     Write-Host ''
 
     try {
@@ -325,11 +369,14 @@ function Main {
             Invoke-Down
         } else {
             $hasGpu = Get-GpuAvailable
+
+            # Remove old sidecars first so compose can recreate them by name,
+            # then clean any leftover service containers from prior deploys.
+            Invoke-RemoveSidecars
             Invoke-CleanConflicts
+
             Invoke-Deploy -HasGpu $hasGpu
 
-            # Toolkit is mandatory when a GPU is present —
-            # without it Docker cannot access the GPU inside containers
             if ($hasGpu) {
                 Invoke-NvidiaInstall
             }
