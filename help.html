@@ -212,7 +212,7 @@
   </div>
 
   <div class="top-bar-right">
-    <a href="https://github.com/veradocai" class="gh-link" target="_blank" rel="noopener">
+    <a href="https://github.com/Veradoc" class="gh-link" target="_blank" rel="noopener">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
       Veradoc on GitHub
     </a>
@@ -237,6 +237,9 @@
       <a href="#installation" class="sidebar-link">
         <span class="icon">⚡</span> Installation
       </a>
+      <a href="#auth" class="sidebar-link">
+        <span class="icon">🔑</span> Authentication
+      </a>
       <a href="#first-query" class="sidebar-link">
         <span class="icon">🔍</span> Your First Query
       </a>
@@ -252,9 +255,6 @@
       </a>
       <a href="#team" class="sidebar-link">
         <span class="icon">👥</span> Team & Roles
-      </a>
-      <a href="#auth" class="sidebar-link">
-        <span class="icon">🔑</span> Authentication
       </a>
     </div>
 
@@ -313,6 +313,7 @@
           <li><a href="#introduction">Introduction</a></li>
           <li><a href="#requirements">Requirements</a></li>
           <li><a href="#installation">Installation</a></li>
+          <li><a href="#auth">Authentication</a></li>
           <li><a href="#first-query">Your First Query</a></li>
           <li><a href="#models">LLM Models</a></li>
           <li><a href="#documents">Document Upload</a></li>
@@ -380,7 +381,7 @@
 <span class="g">PS&gt;</span> irm https://veradoc.ai/install.ps1 | iex</pre>
         </div>
 
-        <p>Once installation completes, open <a href="http://localhost:3000" target="_blank">http://localhost:3000</a> in your browser. Veradoc will be running and ready to use.</p>
+        <p>Once installation completes, open <a href="http://localhost:4200" target="_blank">http://localhost:4200</a> in your browser. Veradoc will be running and ready to use.</p>
 
         <ol class="step-list">
           <li>
@@ -396,6 +397,23 @@
             <div><strong>Open your browser</strong>Navigate to <code>http://localhost:3000</code>. Create your admin account on the first launch screen.</div>
           </li>
         </ol>
+      </section>
+
+      <!-- AUTHENTICATION -->
+      <section class="doc-section" id="auth">
+        <h2>Your First Authentication</h2>
+        <p>After install VeraDoc. The system come with an <strong>Administrator</strong> role default account to start login.
+          These are the credentials</p>
+        <ol>
+          <li><strong>Email:</strong> admin@veradoc.ai</li>
+          <li><strong>Password:</strong> password</li>
+        </ol>
+        <div class="callout warn">
+          <span class="callout-icon">⚠️</span>
+          <div><strong>Pro tip.</strong> After login with this default credentials, it's high recomendable change the password
+            for this default account for your
+            security.</div>
+        </div>
       </section>
 
       <!-- FIRST QUERY -->
@@ -425,9 +443,9 @@
           </thead>
           <tbody>
             <tr><td>Ollama (local)</td><td><span class="badge yes">✓ Yes</span></td><td>Fully air-gapped, recommended for privacy</td></tr>
-            <tr><td>OpenAI API</td><td><span class="badge yes">✓ Yes</span></td><td>GPT-4o and compatible models</td></tr>
-            <tr><td>Azure OpenAI</td><td><span class="badge yes">✓ Yes</span></td><td>Use your own Azure endpoint</td></tr>
-            <tr><td>HuggingFace</td><td><span class="badge yes">✓ Yes</span></td><td>Any inference endpoint</td></tr>
+            <tr><td>HuggingFace</td><td><span class="badge yes">✓ Yes</span></td><td>Any inference endpoint</td></tr>            
+            <tr><td>OpenAI API</td><td><span class="badge yes">⏳ Soon</span></td><td>GPT-4o and compatible models</td></tr>
+            <tr><td>Azure OpenAI</td><td><span class="badge yes">⏳ Soon</span></td><td>Use your own Azure endpoint</td></tr>
             <tr><td>Anthropic Claude</td><td><span class="badge soon">⏳ Soon</span></td><td>Coming in v0.4</td></tr>
           </tbody>
         </table>
@@ -481,10 +499,10 @@
         <div class="code-block">
           <div class="code-block-bar"><span class="code-block-lang">bash</span><button class="code-copy" onclick="copyCode(this, 'cd veradoc && docker compose down\ncd veradoc && docker compose up -d')">Copy</button></div>
           <pre><span class="c"># Stop all services</span>
-<span class="g">$</span> cd veradoc && docker compose down
+<span class="g">$</span> curl -fsSL https://veradoc.ai/scripts/stop.sh | bash
 
 <span class="c"># Start again</span>
-<span class="g">$</span> cd veradoc && docker compose up -d</pre>
+<span class="g">$</span> curl -fsSL https://veradoc.ai/scripts/start.sh | bash</pre>
         </div>
 
         <h3>Is my data lost when I stop Veradoc?</h3>
@@ -513,7 +531,7 @@
         <p>All services should show <code>Up</code> status. If any show <code>Exit</code>, check logs with <code>docker compose logs &lt;service-name&gt;</code>.</p>
 
         <h3>Still stuck?</h3>
-        <p>Open an issue on <a href="https://github.com/veradocai" target="_blank">GitHub</a> or email <a href="mailto:support@veradoc.ai">support@veradoc.ai</a>. Include the output of <code>docker compose logs</code> to help us diagnose the issue faster.</p>
+        <p>Open an issue on <a href="https://github.com/orgs/Veradoc/repositories" target="_blank">GitHub</a> or email <a href="mailto:veradocai@gmail.com">veradocai@gmail.com</a>. Include the output of <code>docker compose logs</code> to help us diagnose the issue faster.</p>
       </section>
 
       <!-- PREV / NEXT NAV -->
