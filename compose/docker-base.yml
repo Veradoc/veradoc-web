@@ -99,6 +99,8 @@ services:
       - APP_ENV=prod
     ports:
       - "8808:8808"
+    volumes:
+      - veradoc-data:/app/db    
     # Shared memory is important for PyTorch/Numpy heavy workloads
     shm_size: '2gb'
     healthcheck:
@@ -131,6 +133,8 @@ services:
 volumes:
   minio-data:
     name: minio-data
+  veradoc-data:
+    name: veradoc-data    
 
 networks:
   veradoc-net: 
