@@ -217,8 +217,17 @@
   <p class="install-sub">No technical knowledge required. If you have Docker, you have everything you need.</p>
 
   <!-- OS TABS -->
-  <div class="os-tabs" role="tablist" aria-label="Operating system">
-    <button class="os-tab active" role="tab" aria-selected="true" aria-controls="panel-linux" id="tab-linux" onclick="switchTab('linux')">
+  <div class="os-tabs active" role="tablist" aria-label="Operating system">
+    <button class="os-tab active" role="tab" aria-selected="true" aria-controls="panel-windows" id="tab-windows" onclick="switchTab('windows')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+        <path d="M3 5.6L10.5 4.5V11.5H3V5.6Z"/>
+        <path d="M11.5 4.35L21 3V11.5H11.5V4.35Z"/>
+        <path d="M3 12.5H10.5V19.5L3 18.4V12.5Z"/>
+        <path d="M11.5 12.5H21V21L11.5 19.65V12.5Z"/>
+      </svg>
+      Windows
+    </button>    
+    <button class="os-tab" role="tab" aria-selected="false" aria-controls="panel-linux" id="tab-linux" onclick="switchTab('linux')">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <ellipse cx="12" cy="9" rx="5" ry="6"/>
         <path d="M8 15c-3 1-4 4-3 6h14c1-2 0-5-3-6"/>
@@ -228,77 +237,10 @@
       </svg>
       Linux / macOS
     </button>
-    <button class="os-tab" role="tab" aria-selected="false" aria-controls="panel-windows" id="tab-windows" onclick="switchTab('windows')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-        <path d="M3 5.6L10.5 4.5V11.5H3V5.6Z"/>
-        <path d="M11.5 4.35L21 3V11.5H11.5V4.35Z"/>
-        <path d="M3 12.5H10.5V19.5L3 18.4V12.5Z"/>
-        <path d="M11.5 12.5H21V21L11.5 19.65V12.5Z"/>
-      </svg>
-      Windows
-    </button>
-  </div>
-
-  <!-- LINUX / macOS PANEL -->
-  <div class="tab-panel active" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux">
-    <div class="install-steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-label"><strong>Install Docker</strong>Only requirement</div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-label"><strong>Run the command</strong>One line in terminal</div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-label"><strong>Open your browser</strong>Veradoc is ready</div>
-      </div>
-    </div>
-
-    <div class="terminal">
-      <div class="terminal-bar">
-        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
-        <span>bash / zsh</span>
-      </div>
-      <div class="terminal-body">
-        <div><span class="t-comment"># Run this single command in your terminal</span></div>
-        <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/install.sh | bash</span></div>
-        <br>
-        <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
-        <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
-        <div><span class="t-info">▶ Configuring local storage...</span></div>
-        <div><span class="t-output">✓ Database ready</span></div>
-        <div><span class="t-output">✓ Embedding model loaded</span></div>
-        <div><span class="t-output">✓ API server running on :8808</span></div>
-        <br>
-        <div><span class="t-success">🚀 Veradoc is running at http://localhost:4200</span></div>
-        <div>
-          <span class="t-success">🔒 Use these credentials to login by default:</span>
-        </div>
-        <div style="margin-left: 25px; margin-top: 5px;">
-          <span class="t-success">
-            <strong>email:</strong> admin@veradoc.ai<br>
-            <strong>password:</strong> password
-          </span>
-        </div>
-        <div><span class="t-prompt">$</span> <span class="t-cursor"></span></div>
-      </div>
-    </div>
-
-    <div class="terminal-actions">
-      <button class="copy-btn" onclick="copyCmd(this, 'curl -fsSL https://veradoc.ai/install.sh | bash')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy command
-      </button>
-      <div class="docker-badge">
-        Only requirement: <strong>Docker Desktop</strong> — free at docker.com
-      </div>
-    </div>
   </div>
 
   <!-- WINDOWS PANEL -->
-  <div class="tab-panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows">
+  <div class="tab-panel active" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows">
     <div class="install-steps">
       <div class="step">
         <div class="step-num">1</div>
@@ -346,6 +288,64 @@
 
     <div class="terminal-actions">
       <button class="copy-btn" onclick="copyCmd(this, 'irm https://veradoc.ai/install.ps1 | iex')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy command
+      </button>
+      <div class="docker-badge">
+        Only requirement: <strong>Docker Desktop</strong> — free at docker.com
+      </div>
+    </div>
+  </div>
+    
+  <!-- LINUX / macOS PANEL -->
+  <div class="tab-panel" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux">
+    <div class="install-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-label"><strong>Install Docker</strong>Only requirement</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-label"><strong>Run the command</strong>One line in terminal</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-label"><strong>Open your browser</strong>Veradoc is ready</div>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <span>bash / zsh</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-comment"># Run this single command in your terminal</span></div>
+        <div><span class="t-prompt">$</span> <span class="t-cmd">curl -fsSL https://veradoc.ai/install.sh | bash</span></div>
+        <br>
+        <div><span class="t-info">▶ Pulling Veradoc images...</span></div>
+        <div><span class="t-info">▶ Starting services with Docker Compose...</span></div>
+        <div><span class="t-info">▶ Configuring local storage...</span></div>
+        <div><span class="t-output">✓ Database ready</span></div>
+        <div><span class="t-output">✓ Embedding model loaded</span></div>
+        <div><span class="t-output">✓ API server running on :8808</span></div>
+        <br>
+        <div><span class="t-success">🚀 Veradoc is running at http://localhost:4200</span></div>
+        <div>
+          <span class="t-success">🔒 Use these credentials to login by default:</span>
+        </div>
+        <div style="margin-left: 25px; margin-top: 5px;">
+          <span class="t-success">
+            <strong>email:</strong> admin@veradoc.ai<br>
+            <strong>password:</strong> password
+          </span>
+        </div>
+        <div><span class="t-prompt">$</span> <span class="t-cursor"></span></div>
+      </div>
+    </div>
+
+    <div class="terminal-actions">
+      <button class="copy-btn" onclick="copyCmd(this, 'curl -fsSL https://veradoc.ai/install.sh | bash')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copy command
       </button>
