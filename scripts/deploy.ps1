@@ -299,7 +299,7 @@ function Invoke-CleanConflicts {
 function Invoke-Deploy {
     param([bool]$HasGpu)
 
-    $ca   = Get-ComposeArgs -WithLlm $HasGpu
+    $ca   = Get-ComposeArgs -WithGpu $HasGpu   # ← was -WithLlm $HasGpu
     $mode = if ($HasGpu) { 'GPU mode' } else { 'CPU-only mode' }
 
     Write-Step 'Pulling latest images'
