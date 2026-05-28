@@ -245,9 +245,7 @@ detect_gpu() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 compose_args() {
-    local with_llm="$1"
-    local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE")
-    [[ "$with_llm" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+    local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE" "-f" "$SCRIPT_DIR/$LLM_COMPOSE")
     echo "${args[@]}"
 }
 
