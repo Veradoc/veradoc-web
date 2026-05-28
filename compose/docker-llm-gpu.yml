@@ -18,6 +18,13 @@ services:
     networks:
       - veradoc-net
     restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
 
   # --- OLLAMA CONFIGURATION SIDECAR ---
   ollama-sidecar:

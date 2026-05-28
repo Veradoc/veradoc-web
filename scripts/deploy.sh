@@ -38,6 +38,7 @@ COMPOSE_URL="https://veradoc.ai/compose"
 SCRIPTS_URL="https://veradoc.ai/scripts"
 BASE_COMPOSE="docker-base.yml"
 LLM_COMPOSE="docker-llm.yml"
+LLM_GPU_COMPOSE="docker-llm-gpu.yml"
 NVIDIA_SCRIPT="install-nvidia-container-toolkit.sh"
 UI_PORT=4200
 
@@ -169,10 +170,12 @@ bootstrap() {
     download_if_missing "$LLM_COMPOSE"  "$COMPOSE_URL"
 
     if [[ "$IS_LINUX" == "true" ]]; then
+        download_if_missing "$LLM_GPU_COMPOSE"  "$COMPOSE_URL"    
         download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
         chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
     else
         info "Skipping NVIDIA script download (not needed on macOS)."
+        info "Skipping LLM NVIDIA deployment download (not needed on macOS)."
     fi
 }
 
@@ -245,7 +248,11 @@ detect_gpu() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 compose_args() {
-    local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE" "-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+   local with_gpu="$1"
+    local args=("docker" "compose"
+        "-f" "$SCRIPT_DIR/$BASE_COMPOSE"
+        "-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+    [[ "$with_gpu" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_GPU_COMPOSE")
     echo "${args[@]}"
 }
 
