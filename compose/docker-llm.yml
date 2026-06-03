@@ -43,17 +43,20 @@ services:
           sleep 2
         done
         
-        echo "Pulling Phi3..."
+        echo "Pulling llm model: Llama-3.2-3B..."
         curl -s -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/unsloth/Llama-3.2-3B-Instruct-GGUF"}'
         
-        echo "Warming up Phi3..."
+        echo "Warming up llm model: Llama-3.2-3B..."
         curl -s -X POST http://ollama:11434/api/generate -d '{"model": "hf.co/unsloth/Llama-3.2-3B-Instruct-GGUF", "prompt": "hello", "keep_alive": -1}'
         
-        echo "Pulling nomic-embed-text...";
-        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF"}';
+        echo "Pulling embedding model: multilingual-e5-large...";
+        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF"}';
 
-        echo "Warming up Nomic Embed...";
-        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF", "keep_alive": -1}';
+        echo "Warming up embedding model: multilingual-e5-large...";
+        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF", "keep_alive": -1}';
+
+        echo "Pulling reranker model: bge-reranker-v2...";
+        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/gpustack/bge-reranker-v2-m3-GGUF"}';
 
         echo "Verifying load..."
         curl -s http://ollama:11434/api/ps
