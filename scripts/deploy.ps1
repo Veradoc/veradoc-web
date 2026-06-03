@@ -47,6 +47,7 @@ $ComposeUrl  = 'https://veradoc.ai/compose'
 $ScriptsUrl  = 'https://veradoc.ai/scripts'
 $BaseCompose = 'docker-base.yml'
 $LlmCompose  = 'docker-llm.yml'
+$LlmGpuCompose  = 'docker-llm-gpu.yml'
 $NvidiaFile  = 'Install-NvidiaContainerToolkit.ps1'
 $ProjectName = 'veradoc-web'
 $UiPort      = 4200
@@ -151,7 +152,7 @@ function Remove-ContainerByName {
 
 function Invoke-Bootstrap {
     Write-Step 'Checking required files'
-    foreach ($file in @($BaseCompose, $LlmCompose)) {
+    foreach ($file in @($BaseCompose, $LlmCompose, $LlmGpuCompose)) {
         Invoke-DownloadIfMissing -File $file -BaseUri $ComposeUrl
     }
     Invoke-DownloadIfMissing -File $NvidiaFile -BaseUri $ScriptsUrl
@@ -219,12 +220,13 @@ function Get-GpuAvailable {
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-ComposeArgs {
-    param([bool]$WithLlm)
+    param([bool]$WithGpu)
     $basePath = ConvertTo-WslPath (Join-Path $ScriptDir $BaseCompose)
-    $a        = @('docker', 'compose', '-p', $ProjectName, '-f', $basePath)
-    if ($WithLlm) {
-        $llmPath = ConvertTo-WslPath (Join-Path $ScriptDir $LlmCompose)
-        $a      += @('-f', $llmPath)
+    $llmPath  = ConvertTo-WslPath (Join-Path $ScriptDir $LlmCompose)
+    $a        = @('docker', 'compose', '-p', $ProjectName, '-f', $basePath, '-f', $llmPath)
+    if ($WithGpu) {
+        $gpuPath = ConvertTo-WslPath (Join-Path $ScriptDir $LlmGpuCompose)
+        $a      += @('-f', $gpuPath)
     }
     return $a
 }
@@ -235,7 +237,7 @@ function Get-ComposeArgs {
 
 function Invoke-Down {
     Write-Step 'Stopping VeraDoc and cleaning volumes'
-    $ca = Get-ComposeArgs -WithLlm $true
+    $ca = Get-ComposeArgs -WithGpu $false   # GPU override not needed for down
     Invoke-Wsl (@($ca) + @('down', '-v', '--rmi', 'local')) `
         -ErrorMessage 'docker compose down failed'
     Write-Success 'Stack stopped, volumes and local images removed.'
@@ -297,7 +299,7 @@ function Invoke-CleanConflicts {
 function Invoke-Deploy {
     param([bool]$HasGpu)
 
-    $ca   = Get-ComposeArgs -WithLlm $HasGpu
+    $ca   = Get-ComposeArgs -WithGpu $HasGpu   # ← was -WithLlm $HasGpu
     $mode = if ($HasGpu) { 'GPU mode' } else { 'CPU-only mode' }
 
     Write-Step 'Pulling latest images'

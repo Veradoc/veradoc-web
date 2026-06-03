@@ -38,6 +38,7 @@ COMPOSE_URL="https://veradoc.ai/compose"
 SCRIPTS_URL="https://veradoc.ai/scripts"
 BASE_COMPOSE="docker-base.yml"
 LLM_COMPOSE="docker-llm.yml"
+LLM_GPU_COMPOSE="docker-llm-gpu.yml"
 NVIDIA_SCRIPT="install-nvidia-container-toolkit.sh"
 UI_PORT=4200
 
@@ -169,10 +170,12 @@ bootstrap() {
     download_if_missing "$LLM_COMPOSE"  "$COMPOSE_URL"
 
     if [[ "$IS_LINUX" == "true" ]]; then
+        download_if_missing "$LLM_GPU_COMPOSE"  "$COMPOSE_URL"    
         download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
         chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
     else
         info "Skipping NVIDIA script download (not needed on macOS)."
+        info "Skipping LLM NVIDIA deployment download (not needed on macOS)."
     fi
 }
 
@@ -240,14 +243,31 @@ detect_gpu() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 3b. NVIDIA Container Toolkit detection
+# ──────────────────────────────────────────────────────────────────────────────
+
+nvidia_toolkit_installed() {
+    # nvidia-ctk present AND Docker runtime configured
+    if ! command -v nvidia-ctk &>/dev/null; then
+        return 1
+    fi
+    if ! docker info 2>/dev/null | grep -q "nvidia"; then
+        return 1
+    fi
+    return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 4. Build docker compose argument list
 #    On Mac Silicon we inject --platform linux/arm64 via DOCKER_DEFAULT_PLATFORM
 # ──────────────────────────────────────────────────────────────────────────────
 
 compose_args() {
-    local with_llm="$1"
-    local args=("docker" "compose" "-f" "$SCRIPT_DIR/$BASE_COMPOSE")
-    [[ "$with_llm" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+   local with_gpu="$1"
+    local args=("docker" "compose"
+        "-f" "$SCRIPT_DIR/$BASE_COMPOSE"
+        "-f" "$SCRIPT_DIR/$LLM_COMPOSE")
+    [[ "$with_gpu" == "true" ]] && args+=("-f" "$SCRIPT_DIR/$LLM_GPU_COMPOSE")
     echo "${args[@]}"
 }
 
@@ -298,15 +318,19 @@ do_deploy() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Optional: install NVIDIA Container Toolkit (Linux only, post-deploy)
+# 7. Install NVIDIA Container Toolkit (Linux only)
 # ──────────────────────────────────────────────────────────────────────────────
 
 install_nvidia_toolkit() {
-    step "Installing NVIDIA Container Toolkit (post-deploy)"
+    step "Installing NVIDIA Container Toolkit"
     info "Running: $NVIDIA_SCRIPT --runtime $NVIDIA_RUNTIME"
     bash "$SCRIPT_DIR/$NVIDIA_SCRIPT" --runtime "$NVIDIA_RUNTIME" \
         || fail "NVIDIA toolkit installer failed."
     success "NVIDIA Container Toolkit installed."
+    info "Restarting Docker daemon to apply runtime changes..."
+    sudo systemctl restart docker \
+        || fail "Failed to restart Docker. Please run: sudo systemctl restart docker"
+    success "Docker daemon restarted."
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -344,11 +368,28 @@ main() {
         local has_gpu="false"
         detect_gpu && has_gpu="true" || true
 
-        do_deploy "$has_gpu"
-
-        if [[ "$INSTALL_NVIDIA" == "true" ]]; then
-            install_nvidia_toolkit
+        # ── Auto-install NVIDIA Container Toolkit if GPU present but toolkit missing ──
+        if [[ "$has_gpu" == "true" && "$IS_LINUX" == "true" ]]; then
+            if nvidia_toolkit_installed; then
+                success "NVIDIA Container Toolkit already installed."
+            else
+                warn "NVIDIA GPU detected but Container Toolkit is not installed."
+                warn "Without it, Docker cannot access the GPU (you will get a device driver error)."
+                echo ""
+                echo -en "  ${C_YELLOW}Install NVIDIA Container Toolkit now? [Y/n]:${C_RESET} "
+                local answer
+                read -r answer </dev/tty
+                answer="${answer:-Y}"
+                if [[ "$answer" =~ ^[Yy]$ ]]; then
+                    install_nvidia_toolkit
+                else
+                    warn "Skipping toolkit install. Falling back to CPU-only mode."
+                    has_gpu="false"
+                fi
+            fi
         fi
+
+        do_deploy "$has_gpu"
 
         # Mac Silicon tip: suggest native Ollama for best GPU performance
         if [[ "$IS_MAC_SILICON" == "true" ]]; then

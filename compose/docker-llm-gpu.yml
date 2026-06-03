@@ -18,6 +18,13 @@ services:
     networks:
       - veradoc-net
     restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
 
   # --- OLLAMA CONFIGURATION SIDECAR ---
   ollama-sidecar:
@@ -36,20 +43,17 @@ services:
           sleep 2
         done
         
-        echo "Pulling llm model: Llama-3.2-3B..."
+        echo "Pulling Llama 3.2 3B..."
         curl -s -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/unsloth/Llama-3.2-3B-Instruct-GGUF"}'
         
-        echo "Warming up llm model: Llama-3.2-3B..."
+        echo "Warming up Llama 3.2 3B..."
         curl -s -X POST http://ollama:11434/api/generate -d '{"model": "hf.co/unsloth/Llama-3.2-3B-Instruct-GGUF", "prompt": "hello", "keep_alive": -1}'
         
-        echo "Pulling embedding model: multilingual-e5-large...";
-        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF"}';
+        echo "Pulling nomic-embed-text...";
+        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF"}';
 
-        echo "Warming up embedding model: multilingual-e5-large...";
-        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF", "keep_alive": -1}';
-
-        echo "Pulling reranker model: bge-reranker-v2...";
-        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/gpustack/bge-reranker-v2-m3-GGUF"}';
+        echo "Warming up Nomic Embed...";
+        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF", "keep_alive": -1}';
 
         echo "Verifying load..."
         curl -s http://ollama:11434/api/ps
