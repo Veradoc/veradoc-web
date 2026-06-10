@@ -50,10 +50,10 @@ services:
         curl -s -X POST http://ollama:11434/api/generate -d '{"model": "hf.co/unsloth/Llama-3.2-3B-Instruct-GGUF", "prompt": "hello", "keep_alive": -1}'
         
         echo "Pulling nomic-embed-text...";
-        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF"}';
+        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF"}';
 
         echo "Warming up Nomic Embed...";
-        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF", "keep_alive": -1}';
+        curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF", "keep_alive": -1}';
 
         echo "Verifying load..."
         curl -s http://ollama:11434/api/ps

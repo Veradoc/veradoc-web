@@ -48,9 +48,6 @@ services:
         echo "Warming up embedding model: multilingual-e5-large...";
         curl -s -X POST http://ollama:11434/api/embeddings -d '{"model": "hf.co/Ralriki/multilingual-e5-large-instruct-GGUF", "keep_alive": -1}';
 
-        echo "Pulling reranker model: bge-reranker-v2...";
-        curl -X POST http://ollama:11434/api/pull -d '{"name": "hf.co/gpustack/bge-reranker-v2-m3-GGUF"}';
-
         echo "Verifying load..."
         curl -s http://ollama:11434/api/ps
 
