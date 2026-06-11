@@ -362,18 +362,14 @@ detect_host_ip() {
 host_ip_env_variables() {
     # get local host IP
     step "Define Host IP environment variables."    
-    HOST_IP=$(detect_host_ip)
-    success ""
-    success "  Detected host IP : $HOST_IP"
-    success ""
+    export HOST_IP=$(detect_host_ip)
+    success "Detected host IP : $HOST_IP"
 
     # export for docker compose
     export API_URL="http://${HOST_IP}:8808"
     export WS_URL="ws://${HOST_IP}:8808"    
-    success ""
-    success "  API URL : http://${HOST_IP}:8808"
-    success "  WS  URL : ws://${HOST_IP}:8808"
-    success ""    
+    success "API URL : http://${HOST_IP}:8808"
+    success "WS  URL : ws://${HOST_IP}:8808"
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

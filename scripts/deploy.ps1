@@ -358,18 +358,14 @@ function Get-HostIP {
 
 function Host-Ip-Env-Variables {
     Write-Step 'Define Host IP environment variables.'
-    $HOST_IP = Get-HostIP
-    Write-Success ""
-    Write-Success "  Detected host IP : $HOST_IP"
-    Write-Success ""
+    $env:HOST_IP = Get-HostIP
+    Write-Success "Detected host IP : $HOST_IP"
             
     # Set env vars for docker compose
-    $env:API_URL = "http://${HOST_IP}:8808"
-    $env:WS_URL  = "ws://${HOST_IP}:8808"
-    Write-Success ""
-    Write-Success "  API URL          : http://${HOST_IP}:8808"
-    Write-Success "  WS  URL          : ws://${HOST_IP}:8808"
-    Write-Success ""
+    $env:API_URL = "http://${env:HOST_IP}:8808"
+    $env:WS_URL  = "ws://${env:HOST_IP}:8808"
+    Write-Success "API URL          : http://${HOST_IP}:8808"
+    Write-Success "WS  URL          : ws://${HOST_IP}:8808"
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
