@@ -124,6 +124,9 @@ services:
     container_name: veradoc-ui
     ports:
       - "4200:80"
+    environment:
+      - API_URL=${API_URL:-http://localhost:8808}
+      - WS_URL=${WS_URL:-ws://localhost:8808}      
     depends_on:
       - veradoc-back      
     networks:

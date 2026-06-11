@@ -27,7 +27,6 @@ fi
 echo -e "${GREEN}[OK] deploy.sh ready.${NC}"
 
 chmod +x "$DEPLOY_PATH"
-#bash "$DEPLOY_PATH"
 . "$DEPLOY_PATH"
 
 echo -e "${GREEN}🚀 Veradoc is running at http://${HOST_IP}:4200"
