@@ -14,7 +14,9 @@ $exe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "po
 
 Write-Host "Ejecutando con: $exe" -ForegroundColor Gray
 
-& $exe -ExecutionPolicy Bypass -File $deployPath
+#& $exe -ExecutionPolicy Bypass -File $deployPath
+$content = Get-Content $deployPath -Raw
+Invoke-Expression $content
 
 Write-Host "🚀 Veradoc is running at http://${env:HOST_IP}:4200" -ForegroundColor Gray
 Write-Host "🔒 Use these credentials to login by default:" -ForegroundColor Gray
