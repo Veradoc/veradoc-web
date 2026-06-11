@@ -356,6 +356,22 @@ function Get-HostIP {
     return $ip
 }
 
+function Host-Ip-Env-Variables {
+    Write-Step 'Define Host IP environment variables.'
+    $HOST_IP = Get-HostIP
+    Write-Success ""
+    Write-Success "  Detected host IP : $HOST_IP"
+    Write-Success ""
+            
+    # Set env vars for docker compose
+    $env:API_URL = "http://${HOST_IP}:8808"
+    $env:WS_URL  = "ws://${HOST_IP}:8808"
+    Write-Success ""
+    Write-Success "  API URL          : http://${HOST_IP}:8808"
+    Write-Success "  WS  URL          : ws://${HOST_IP}:8808"
+    Write-Success ""
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Entry point — self-save when piped via irm | iex
 # ──────────────────────────────────────────────────────────────────────────────
@@ -388,18 +404,7 @@ function Main {
     try {
         Invoke-Bootstrap
         Invoke-Preflight
-
-        $HOST_IP = Get-HostIP
-
-        Write-Host ""
-        Write-Host "  Detected host IP : $HOST_IP"               -ForegroundColor Green
-        Write-Host "  API URL          : http://${HOST_IP}:8808" -ForegroundColor Green
-        Write-Host "  WS  URL          : ws://${HOST_IP}:8808"   -ForegroundColor Green
-        Write-Host ""
-
-        # ── Set env vars for docker compose ──────────────────
-        $env:API_URL = "http://${HOST_IP}:8808"
-        $env:WS_URL  = "ws://${HOST_IP}:8808"
+        Host-Ip-Env-Variables
 
         if ($Down) {
             Invoke-Down

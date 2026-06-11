@@ -359,6 +359,23 @@ detect_host_ip() {
   echo "127.0.0.1"
 }
 
+host_ip_env_variables() {
+    # get local host IP
+    step "Define Host IP environment variables."    
+    HOST_IP=$(detect_host_ip)
+    success ""
+    success "  Detected host IP : $HOST_IP"
+    success ""
+
+    # export for docker compose
+    export API_URL="http://${HOST_IP}:8808"
+    export WS_URL="ws://${HOST_IP}:8808"    
+    success ""
+    success "  API URL : http://${HOST_IP}:8808"
+    success "  WS  URL : ws://${HOST_IP}:8808"
+    success ""    
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────────────
@@ -387,18 +404,8 @@ main() {
 
     bootstrap
     preflight_checks
+    host_ip_env_variables
 
-    HOST_IP=$(detect_host_ip)
-    echo ""
-    echo "  Detected host IP : $HOST_IP"
-    echo "  API URL          : http://${HOST_IP}:8808"
-    echo "  WS  URL          : ws://${HOST_IP}:8808"
-    echo ""
-
-    # ── Export for docker compose ─────────────────────────
-    export API_URL="http://${HOST_IP}:8808"
-    export WS_URL="ws://${HOST_IP}:8808"
-    
     if [[ "$DO_DOWN" == "true" ]]; then
         do_down
     else
