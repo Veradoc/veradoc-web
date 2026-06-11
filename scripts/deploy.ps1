@@ -335,6 +335,28 @@ function Invoke-NvidiaInstall {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 10. Detect local IP to configure frontend
+# ──────────────────────────────────────────────────────────────────────────────
+function Get-HostIP {
+    # Try to get the first non-loopback, non-virtual IPv4
+    $ip = Get-NetIPAddress -AddressFamily IPv4 `
+        | Where-Object {
+            $_.IPAddress -notmatch "^127\." -and
+            $_.IPAddress -notmatch "^169\.254\." -and   # link-local
+            $_.PrefixOrigin -ne "WellKnown"
+        } `
+        | Sort-Object InterfaceMetric `
+        | Select-Object -First 1 -ExpandProperty IPAddress
+
+    if (-not $ip) {
+        Write-Warning "Could not detect IP, falling back to 127.0.0.1"
+        return "127.0.0.1"
+    }
+
+    return $ip
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Entry point — self-save when piped via irm | iex
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -366,6 +388,18 @@ function Main {
     try {
         Invoke-Bootstrap
         Invoke-Preflight
+
+        $HOST_IP = Get-HostIP
+
+        Write-Host ""
+        Write-Host "  Detected host IP : $HOST_IP"               -ForegroundColor Green
+        Write-Host "  API URL          : http://${HOST_IP}:8808" -ForegroundColor Green
+        Write-Host "  WS  URL          : ws://${HOST_IP}:8808"   -ForegroundColor Green
+        Write-Host ""
+
+        # ── Set env vars for docker compose ──────────────────
+        $env:API_URL = "http://${HOST_IP}:8808"
+        $env:WS_URL  = "ws://${HOST_IP}:8808"
 
         if ($Down) {
             Invoke-Down

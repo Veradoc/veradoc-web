@@ -334,6 +334,32 @@ install_nvidia_toolkit() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 8. Detect local IP to configure frontend
+# ──────────────────────────────────────────────────────────────────────────────
+detect_host_ip() {
+  local IP=""
+
+  # Linux: hostname -I
+  IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+  [ -n "$IP" ] && echo "$IP" && return
+
+  # Linux: ip route
+  IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')
+  [ -n "$IP" ] && echo "$IP" && return
+
+  # macOS
+  IP=$(ipconfig getifaddr en0 2>/dev/null)
+  [ -n "$IP" ] && echo "$IP" && return
+
+  # macOS fallback (Wi-Fi)
+  IP=$(ipconfig getifaddr en1 2>/dev/null)
+  [ -n "$IP" ] && echo "$IP" && return
+
+  # Last resort
+  echo "127.0.0.1"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -362,6 +388,17 @@ main() {
     bootstrap
     preflight_checks
 
+    HOST_IP=$(detect_host_ip)
+    echo ""
+    echo "  Detected host IP : $HOST_IP"
+    echo "  API URL          : http://${HOST_IP}:8808"
+    echo "  WS  URL          : ws://${HOST_IP}:8808"
+    echo ""
+
+    # ── Export for docker compose ─────────────────────────
+    export API_URL="http://${HOST_IP}:8808"
+    export WS_URL="ws://${HOST_IP}:8808"
+    
     if [[ "$DO_DOWN" == "true" ]]; then
         do_down
     else
