@@ -142,15 +142,10 @@ done
 # Helper: download a file if it is not already present
 # ──────────────────────────────────────────────────────────────────────────────
 
-download_if_missing() {
+download_file() {
     local file="$1"
     local base_uri="$2"
     local dest="$SCRIPT_DIR/$file"
-
-    if [[ -f "$dest" ]]; then
-        success "$file already present."
-        return
-    fi
 
     info "Downloading $file ..."
     curl -fsSL "$base_uri/$file" -o "$dest" \
@@ -166,12 +161,12 @@ download_if_missing() {
 bootstrap() {
     step "Checking required files"
 
-    download_if_missing "$BASE_COMPOSE" "$COMPOSE_URL"
-    download_if_missing "$LLM_COMPOSE"  "$COMPOSE_URL"
+    download_file "$BASE_COMPOSE" "$COMPOSE_URL"
+    download_file "$LLM_COMPOSE"  "$COMPOSE_URL"
 
     if [[ "$IS_LINUX" == "true" ]]; then
-        download_if_missing "$LLM_GPU_COMPOSE"  "$COMPOSE_URL"    
-        download_if_missing "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
+        download_file "$LLM_GPU_COMPOSE"  "$COMPOSE_URL"    
+        download_file "$NVIDIA_SCRIPT" "$SCRIPTS_URL"
         chmod +x "$SCRIPT_DIR/$NVIDIA_SCRIPT"
     else
         info "Skipping NVIDIA script download (not needed on macOS)."

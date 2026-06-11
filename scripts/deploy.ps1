@@ -102,13 +102,10 @@ function ConvertTo-WslPath {
     return $p.ToLower().Trim()
 }
 
-function Invoke-DownloadIfMissing {
+function Invoke-DownloadFile {
     param([string]$File, [string]$BaseUri)
     $dest = Join-Path $ScriptDir $File
-    if (Test-Path $dest) {
-        Write-Success "$File already present."
-        return
-    }
+
     Write-Info "Downloading $File ..."
     try {
         Invoke-WebRequest -Uri "$BaseUri/$File" -OutFile $dest -ErrorAction Stop
@@ -153,9 +150,9 @@ function Remove-ContainerByName {
 function Invoke-Bootstrap {
     Write-Step 'Checking required files'
     foreach ($file in @($BaseCompose, $LlmCompose, $LlmGpuCompose)) {
-        Invoke-DownloadIfMissing -File $file -BaseUri $ComposeUrl
+        Invoke-DownloadFile -File $file -BaseUri $ComposeUrl
     }
-    Invoke-DownloadIfMissing -File $NvidiaFile -BaseUri $ScriptsUrl
+    Invoke-DownloadFile -File $NvidiaFile -BaseUri $ScriptsUrl
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
