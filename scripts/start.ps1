@@ -44,4 +44,3 @@ if ($hasGpu) {
 }
 
 Write-Host "--- Services Started ---" -ForegroundColor Green
-Write-Host "UI:      http://localhost:4200"

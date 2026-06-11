@@ -417,10 +417,6 @@ function Main {
             if ($hasGpu) {
                 Invoke-NvidiaInstall
             }
-
-            Write-Host ''
-            Write-Host '  UI:  ' -NoNewline -ForegroundColor Gray
-            Write-Host "http://localhost:$UiPort" -ForegroundColor White
         }
 
         Write-Host "`n================================" -ForegroundColor Magenta

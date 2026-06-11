@@ -438,9 +438,6 @@ main() {
             echo -e "  ${C_GRAY}For GPU-accelerated inference, run Ollama natively:${C_RESET}"
             echo -e "  ${C_WHITE}  brew install ollama && ollama serve${C_RESET}"
         fi
-
-        echo ""
-        echo -e "  ${C_GRAY}UI:${C_RESET}  ${C_WHITE}http://localhost:${UI_PORT}${C_RESET}"
     fi
 
     echo -e "\n${C_MAGENTA}================================${C_RESET}"

@@ -48,4 +48,3 @@ else
 fi
 
 echo -e "${GREEN}--- Services Started ---${NC}"
-echo "UI:      http://localhost:4200"
