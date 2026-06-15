@@ -8,16 +8,15 @@ Write-Host 'Downloading latest deploy.ps1...' -ForegroundColor Cyan
 Invoke-WebRequest -Uri $deployUrl -OutFile $deployPath -ErrorAction Stop
 Write-Host '[OK] deploy.ps1 ready.' -ForegroundColor Green
 
-# --- CAMBIO AQUÍ: Detección de ejecutable ---
-# Intentamos usar 'pwsh' (Core), si falla usamos 'powershell' (Windows PS)
+# Detección de ejecutable: Intentamos usar 'pwsh' (Core), si falla usamos 'powershell' (Windows PS)
 $exe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
 
 Write-Host "Ejecutando con: $exe" -ForegroundColor Gray
 
-#& $exe -ExecutionPolicy Bypass -File $deployPath
-$content = Get-Content $deployPath -Raw
-Invoke-Expression $content
+# FIX: Run the file directly instead of using Invoke-Expression
+& $exe -ExecutionPolicy Bypass -File $deployPath
 
+# If deploy.ps1 sets the host IP environment variable, we can read it here
 Write-Host "🚀 Veradoc is running at http://${env:HOST_IP}:4200" -ForegroundColor Gray
 Write-Host "🔒 Use these credentials to login by default:" -ForegroundColor Gray
 Write-Host "email: admin@veradoc.ai" -ForegroundColor Gray

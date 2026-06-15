@@ -50,7 +50,6 @@ $LlmCompose  = 'docker-llm.yml'
 $LlmGpuCompose  = 'docker-llm-gpu.yml'
 $NvidiaFile  = 'Install-NvidiaContainerToolkit.ps1'
 $ProjectName = 'veradoc-web'
-$UiPort      = 4200
 
 $ScriptDir    = $PWD.Path
 $NvidiaScript = Join-Path $ScriptDir $NvidiaFile
@@ -353,7 +352,7 @@ function Get-HostIP {
     return $ip
 }
 
-function Host-Ip-Env-Variables {
+function Get-Host-Ip-Env-Variables {
     Write-Step 'Define Host IP environment variables.'
     $env:HOST_IP = Get-HostIP
     Write-Success "Detected host IP : $HOST_IP"
@@ -397,7 +396,7 @@ function Main {
     try {
         Invoke-Bootstrap
         Invoke-Preflight
-        Host-Ip-Env-Variables
+        Get-Host-Ip-Env-Variables
 
         if ($Down) {
             Invoke-Down
