@@ -8,16 +8,18 @@ Write-Host 'Downloading latest deploy.ps1...' -ForegroundColor Cyan
 Invoke-WebRequest -Uri $deployUrl -OutFile $deployPath -ErrorAction Stop
 Write-Host '[OK] deploy.ps1 ready.' -ForegroundColor Green
 
-# Detección de ejecutable: Intentamos usar 'pwsh' (Core), si falla usamos 'powershell' (Windows PS)
-$exe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+Write-Host "Ejecutando con: Contexto Local (Dot-Sourcing)" -ForegroundColor Gray
 
-Write-Host "Ejecutando con: $exe" -ForegroundColor Gray
+# --- EXECUTION ---
+# Using Dot-Sourcing (.) instead of (& -File) keeps variables like 
+# $env:HOST_IP alive in this script's scope after deploy.ps1 finishes.
+. $deployPath
 
-# FIX: Run the file directly instead of using Invoke-Expression
-& $exe -ExecutionPolicy Bypass -File $deployPath
+# --- POST-DEPLOYMENT INFO ---
+# Checked against strict mode using an explicit fallback if not defined
+$displayIp = if ($env:HOST_IP) { $env:HOST_IP } else { "127.0.0.1" }
 
-# If deploy.ps1 sets the host IP environment variable, we can read it here
-Write-Host "🚀 Veradoc is running at http://${env:HOST_IP}:4200" -ForegroundColor Gray
+Write-Host "`n🚀 Veradoc is running at http://${displayIp}:4200" -ForegroundColor Gray
 Write-Host "🔒 Use these credentials to login by default:" -ForegroundColor Gray
 Write-Host "email: admin@veradoc.ai" -ForegroundColor Gray
 Write-Host "password: password " -ForegroundColor Gray
