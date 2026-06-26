@@ -91,33 +91,6 @@ services:
     networks:
       - veradoc-net
 
-  # --- AGENTIC AI SERVICE ---
-  veradoc-back:
-    image: veradocai/veradoc-back
-    container_name: veradoc-back
-    environment:
-      - APP_ENV=prod
-    ports:
-      - "8808:8808"
-    volumes:
-      - veradoc-data:/app/db    
-    # Shared memory is important for PyTorch/Numpy heavy workloads
-    shm_size: '2gb'
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://veradoc-back:8808/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s          
-    depends_on:
-      minio-sidecar-buckets:
-        condition: service_completed_successfully      
-      ollama:
-        condition: service_healthy
-    networks:
-      - veradoc-net
-    restart: always 
-
   # --- APP UI SERVICE ---
   veradoc-ui:
     image: veradocai/veradoc-ui
@@ -135,9 +108,7 @@ services:
 
 volumes:
   minio-data:
-    name: minio-data
-  veradoc-data:
-    name: veradoc-data    
+    name: minio-data  
 
 networks:
   veradoc-net: 
