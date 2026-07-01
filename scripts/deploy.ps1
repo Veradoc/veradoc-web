@@ -383,6 +383,32 @@ if ($isPiped) {
     & pwsh @relaunchArgs
 }
 
+function Send-Telemetry {
+    param([bool]$HasGpu)
+
+    try {
+        # Detectar si es install o update
+        $veradocEvent = "install"
+        $existing = docker ps -a --format "{{.Names}}" 2>$null | Select-String "veradoc"
+        if ($existing) { $veradocEvent = "update" }
+
+        $payload = @{
+            event   = $event
+            version = "1.0.0"
+            os      = "windows"
+            gpu     = if ($HasGpu) { "true" } else { "none" }
+        } | ConvertTo-Json
+
+        Invoke-RestMethod `
+            -Uri "https://veradoc-telemetry.veradocai.workers.dev" `
+            -Method POST `
+            -Body $payload `
+            -ContentType "application/json" `
+            -TimeoutSec 5 `
+            -ErrorAction Stop | Out-Null
+    } catch { <# silencioso #> }
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main — defined and called last so PS 5.1 has parsed all functions above
 # ──────────────────────────────────────────────────────────────────────────────
@@ -410,6 +436,8 @@ function Main {
             # then clean any leftover service containers from prior deploys.
             Invoke-RemoveSidecars
             Invoke-CleanConflicts
+
+            Send-Telemetry -HasGpu $hasGpu
 
             Invoke-Deploy -HasGpu $hasGpu
 

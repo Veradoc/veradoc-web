@@ -367,6 +367,27 @@ host_ip_env_variables() {
     success "WS  URL : ws://${HOST_IP}:8808"
 }
 
+send_telemetry() {
+    local has_gpu="$1"
+
+    local version="1.0.0"
+    local gpu="none"
+    if [ "$has_gpu" = "true" ]; then
+        gpu="true"
+    fi
+
+    local event="install"
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "veradoc"; then
+        event="update"
+    fi
+
+    curl -s --max-time 5 \
+        -X POST "https://veradoc-telemetry.veradocai.workers.dev" \
+        -H "Content-Type: application/json" \
+        -d "{\"event\":\"${event}\",\"version\":\"${version}\",\"os\":\"linux\",\"gpu\":\"${gpu}\"}" \
+        > /dev/null 2>&1 || true
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────────────
@@ -423,6 +444,8 @@ main() {
                 fi
             fi
         fi
+
+        send_telemetry "$has_gpu"
 
         do_deploy "$has_gpu"
 
