@@ -258,7 +258,7 @@ nvidia_toolkit_installed() {
 # ──────────────────────────────────────────────────────────────────────────────
 
 compose_args() {
-   local with_gpu="$1"
+    local with_gpu="$1"
     local args=("docker" "compose"
         "-f" "$SCRIPT_DIR/$BASE_COMPOSE"
         "-f" "$SCRIPT_DIR/$LLM_COMPOSE")
