@@ -447,6 +447,7 @@ main() {
             veradoc_event="update"
         fi
 
+        # deploy Veradoc
         do_deploy "$has_gpu"
 
         # send telemetry status

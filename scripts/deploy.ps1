@@ -442,6 +442,7 @@ function Main {
                 $veradocEvent = "update"
             }
 
+            # deploy Veradoc
             Invoke-Deploy -HasGpu $hasGpu
 
             # send telemetry status
