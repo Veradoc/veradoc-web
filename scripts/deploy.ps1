@@ -384,19 +384,17 @@ if ($isPiped) {
 }
 
 function Send-Telemetry {
-    param([bool]$HasGpu)
+    param(
+        [bool]$hasGpu,
+        [string]$event
+    )
 
     try {
-        # Detectar si es install o update
-        $veradocEvent = "install"
-        $existing = docker ps -a --format "{{.Names}}" 2>$null | Select-String "veradoc"
-        if ($existing) { $veradocEvent = "update" }
-
         $payload = @{
             event   = $event
             version = "1.0.0"
             os      = "windows"
-            gpu     = if ($HasGpu) { "true" } else { "none" }
+            gpu     = if ($hasGpu) { "true" } else { "none" }
         } | ConvertTo-Json
 
         Invoke-RestMethod `
@@ -437,9 +435,17 @@ function Main {
             Invoke-RemoveSidecars
             Invoke-CleanConflicts
 
-            Send-Telemetry -HasGpu $hasGpu
+            # get deployment installation
+            $veradocEvent = "install"
+            $existing = docker ps -a --format "{{.Names}}" 2>$null | Select-String "veradoc"
+            if ($existing) { 
+                $veradocEvent = "update"
+            }
 
             Invoke-Deploy -HasGpu $hasGpu
+
+            # send telemetry status
+            Send-Telemetry -hasGpu $hasGpu -event $veradocEvent
 
             if ($hasGpu) {
                 Invoke-NvidiaInstall

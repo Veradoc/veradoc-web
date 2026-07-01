@@ -369,16 +369,12 @@ host_ip_env_variables() {
 
 send_telemetry() {
     local has_gpu="$1"
+    local event="$2"
 
     local version="1.0.0"
     local gpu="none"
     if [ "$has_gpu" = "true" ]; then
         gpu="true"
-    fi
-
-    local event="install"
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "veradoc"; then
-        event="update"
     fi
 
     curl -s --max-time 5 \
@@ -445,9 +441,16 @@ main() {
             fi
         fi
 
-        send_telemetry "$has_gpu"
+        # get deployment installation
+        local veradoc_event="install"
+        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "veradoc"; then
+            veradoc_event="update"
+        fi
 
         do_deploy "$has_gpu"
+
+        # send telemetry status
+        send_telemetry "$has_gpu" "$veradoc_event"
 
         # Mac Silicon tip: suggest native Ollama for best GPU performance
         if [[ "$IS_MAC_SILICON" == "true" ]]; then
